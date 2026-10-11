@@ -18,6 +18,7 @@ from . import effects, exportopts
 from .helptext import help_html
 from .helpdoc import controls_sections, reference_sections
 from .helpview import HelpDialog
+from .tips import TooltipStyler, param_tip, shortcut_tip, tip
 from .core import BYTES_PER_SAMPLE, FORMAT_NAMES, INTERLEAVED, MODE_NAMES, Document, Rect, norm_sel, run_as_rect, run_rows
 from .effects import SR, Effect, Param
 from .history import HistoryPanel
@@ -54,7 +55,7 @@ class ExportDialog(QDialog):
         for p in exportopts.specs(kind):
             row = ParamRow(p, last.get(p.key, p.default), self._changed)
             self.rows[p.key] = row; form.addRow(p.label, row)
-            row.setToolTip(p.help); form.labelForField(row).setToolTip(p.help)
+            row.setToolTip(param_tip(p)); form.labelForField(row).setToolTip(param_tip(p))
         self.note = QLabel(); self.note.setWordWrap(True); self.note.setStyleSheet("color: gray")
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         bb.accepted.connect(self.accept); bb.rejected.connect(self.reject)
@@ -139,15 +140,15 @@ class EffectDialog(QDialog):
                 form.addRow(head)
             row = ParamRow(p, last.get(p.key, p.default), self._changed)
             self.rows[p.key] = row; form.addRow(p.label, row)
-            if p.help:  # hover for a quick reminder of what this setting does
-                row.setToolTip(p.help); form.labelForField(row).setToolTip(p.help)
+            if p.help:  # hover for a quick reminder of what this setting does, and what values it takes
+                row.setToolTip(param_tip(p)); form.labelForField(row).setToolTip(param_tip(p))
         self.live = QCheckBox("Live preview"); self.live.setChecked(True)
         self.live.toggled.connect(self._changed)
         self.busy = QLabel(""); self.busy.setStyleSheet("color: gray")
         st = QSettings("oto-e", "oto-e")
         self.small = QCheckBox("Small-scale preview of"); self.small.setChecked(str(st.value("small_preview", "0")) in ("1", "true"))
-        self.small.setToolTip("Live preview computes only a stretch of full-resolution rows, centred in the selection (or the whole image).\n"
-                              "The rest stays untouched while you tweak. OK still applies the effect to everything.")
+        self.small.setToolTip(tip("Small-scale preview", "Computes the live preview for only a stretch of full-resolution rows, centred in the selection "
+                                  "(or the whole image). The rest stays untouched while you tweak.", hint="OK still applies the effect to everything."))
         self.small_pct = QSpinBox(); self.small_pct.setRange(1, 100); self.small_pct.setSuffix(" %"); self.small_pct.setValue(int(st.value("small_pct", 20)))
         self.small_pct.setEnabled(self.small.isChecked())
         self.small.toggled.connect(lambda on: (self.small_pct.setEnabled(on), self._save_small(), self._changed()))
@@ -272,6 +273,8 @@ class MainWindow(QMainWindow):
         self.image_view.rectSelected.connect(lambda r: self._set_selection(r))
         self._comparing = False
         QApplication.instance().installEventFilter(self)  # the C key must work without hovering or clicking the image first
+        self._tooltips = TooltipStyler(self)  # every plain tooltip gets the shared padding and wrapping
+        QApplication.instance().installEventFilter(self._tooltips)
         img_panel = QWidget(); il = QVBoxLayout(img_panel); il.setContentsMargins(0, 0, 0, 0); il.setSpacing(0)
         il.addWidget(self._build_view_strip()); il.addWidget(self.image_view, 1)
         left = QSplitter(Qt.Orientation.Vertical)
@@ -287,7 +290,7 @@ class MainWindow(QMainWindow):
             sc = QShortcut(QKeySequence(key), self.tree); sc.setContext(Qt.ShortcutContext.WidgetShortcut)
             sc.activated.connect(lambda: self._tree_activate(self.tree.currentItem()))
         self._build_tree()
-        apply_btn = self.apply_btn = QPushButton("Apply…"); apply_btn.clicked.connect(lambda: self._tree_activate(self.tree.currentItem()))
+        apply_btn = self.apply_btn = QPushButton("Apply…"); apply_btn.setToolTip(tip("Apply", "Open the settings of the highlighted effect.", hint="Or double-click it, or press Enter")); apply_btn.clicked.connect(lambda: self._tree_activate(self.tree.currentItem()))
         again_btn = self.again_btn = QPushButton("Repeat last"); again_btn.clicked.connect(self.repeat_last)
         right = QWidget(); rl = QVBoxLayout(right)
         self.desc = QLabel("Select an effect to see what it does. Double-click to apply. Right-click for more help.")
@@ -298,10 +301,10 @@ class MainWindow(QMainWindow):
         self.tree.customContextMenuRequested.connect(self._tree_menu)
         rl.addWidget(QLabel("<b>Effects</b>")); rl.addWidget(self.search); rl.addWidget(self.tree, 1); rl.addWidget(self.desc)
         rand_btn = self.rand_btn = QPushButton("🎲 Randomize"); rand_btn.clicked.connect(self.randomize)
-        rand_btn.setToolTip("Apply a random effect with random settings to the selection (Ctrl+Shift+R)")
+        rand_btn.setToolTip(tip("Randomize", "Apply a random effect with random settings to the selection. Undo it if you don't like it.", hint="Shortcut: Ctrl+Shift+R"))
         brow = QHBoxLayout(); brow.addWidget(apply_btn); brow.addWidget(again_btn); rl.addLayout(brow)
         reroll_btn = self.reroll_btn = QPushButton("↺ Revert and randomize"); reroll_btn.clicked.connect(self.reroll)
-        reroll_btn.setToolTip("Undo the last randomize, then apply a new random effect (Ctrl+Shift+E)")
+        reroll_btn.setToolTip(tip("Revert and randomize", "Undo the last randomize, then apply a new random effect.", hint="Shortcut: Ctrl+Shift+E"))
         rl.addWidget(rand_btn); rl.addWidget(reroll_btn)
         right.setMinimumWidth(230); right.setMaximumWidth(360)
 
@@ -399,42 +402,45 @@ class MainWindow(QMainWindow):
         for act in (self.a_save, self.a_undo, self.a_redo):
             tb.addAction(act)
         cmp_btn = QToolButton(); cmp_btn.setText("Compare")
-        cmp_btn.setToolTip("Hold to see the original image (or hold C). Let go to get your edit back.")
+        cmp_btn.setToolTip(tip("Compare", "Hold to see the original image. Let go to get your edit back.", hint="Or hold C (not while an effect window is open)"))
         cmp_btn.pressed.connect(lambda: self.compare(True)); cmp_btn.released.connect(lambda: self.compare(False))
         tb.addWidget(cmp_btn)
         tb.addSeparator()
         tb.addWidget(QLabel(" View: "))
         cb = QComboBox(); cb.addItems(["Waveform", "Spectrogram", "Both"]); cb.setCurrentIndex(2)
+        cb.setToolTip(tip("View", "What the panel under the image shows: the waveform, the spectrogram, or both."))
         cb.currentIndexChanged.connect(self.wave.set_mode); tb.addWidget(cb)
         tb.addWidget(QLabel("  Data: "))
         self.mode_cb = QComboBox(); self.mode_cb.addItems(MODE_NAMES)
+        self.mode_cb.setToolTip(tip("Data layout", "Interleaved reads the bytes as R, G, B, R, G, B… pixel after pixel. Planar reads all the red bytes first, then all the green, "
+                                    "then all the blue.", hint="Changing it clears the selection."))
         self.mode_cb.currentIndexChanged.connect(self.set_data_mode); tb.addWidget(self.mode_cb)
         tb.addWidget(QLabel("  Samples: "))
         self.fmt_cb = QComboBox(); self.fmt_cb.addItems(FORMAT_NAMES)
-        self.fmt_cb.setToolTip("How the picture's bytes are read as audio samples, like the encoding in Audacity's raw import.\n"
-                               "Unsigned 8-bit is the classic one-byte-per-sample reading; 16-bit formats pair bytes up.")
+        self.fmt_cb.setToolTip(tip("Samples", "How the picture's bytes are read as audio samples, like the encoding in Audacity's raw import. Unsigned 8-bit is the "
+                                   "classic one-byte-per-sample reading; 16-bit formats pair bytes up.", hint="Changing it clears the selection."))
         self.fmt_cb.currentIndexChanged.connect(self.set_sample_format); tb.addWidget(self.fmt_cb)
         tb.addWidget(QLabel("  Selection: "))
         self.sel_btns = QButtonGroup(self); self.sel_btns.setExclusive(True)
-        for i, (text, tip) in enumerate([
+        for i, (text, desc) in enumerate([
                 ("Run", "Dragging selects a stretch of the data in reading order, like the waveform. Audio effects run on it as one stream."),
                 ("Rectangle", "Dragging draws a box that becomes its own small picture. Needed for Image effects; audio effects see its rows joined.")]):
-            b = QPushButton(text); b.setCheckable(True); b.setAutoDefault(False); b.setToolTip(tip + "\nSwitching clears the selection.")
+            b = QPushButton(text); b.setCheckable(True); b.setAutoDefault(False); b.setToolTip(tip(f"Selection: {text}", desc, hint="Switching clears the selection."))
             b.setChecked(i == 0); self.sel_btns.addButton(b, i); tb.addWidget(b)
             b.setStyleSheet("QPushButton:checked { background-color: palette(highlight); color: palette(highlighted-text); font-weight: bold; }")
         self.sel_btns.idClicked.connect(lambda i: self.set_free_selection(bool(i)))
         ib = QPushButton("ⓘ"); ib.setAutoDefault(False)
         side = self.sel_btns.button(0).sizeHint().height(); ib.setFixedSize(side, side)  # square, as tall as the Run / Rectangle buttons
-        ib.setToolTip("How the two selection modes change what effects do")
+        ib.setToolTip(tip("Selection modes", "How Run and Rectangle change what effects do.", hint="Opens the guide"))
         ib.clicked.connect(lambda: HelpDialog("Controls", controls_sections, self, start="selection").show()); tb.addWidget(ib)
 
     def _build_view_strip(self) -> QWidget:
         strip = QWidget(); lay = QHBoxLayout(strip); lay.setContentsMargins(4, 2, 4, 2)
         iv = self.image_view
-        for text, tip, fn in [("−", "Zoom out (Ctrl+-)", lambda: iv.zoom_by(0.8)), ("+", "Zoom in (Ctrl+=)", lambda: iv.zoom_by(1.25)),
-                              ("Fit", "Fit image to window (Ctrl+0)", iv.fit), ("Fill", "Fill window, cropping overflow", iv.fill),
-                              ("100%", "Actual size (Ctrl+1)", iv.actual_size), ("Center", "Center image (Ctrl+Shift+M)", iv.center)]:
-            b = QPushButton(text); b.setToolTip(tip); b.setAutoDefault(False)
+        for text, desc, fn in [("−", "Zoom out (Ctrl+-)", lambda: iv.zoom_by(0.8)), ("+", "Zoom in (Ctrl+=)", lambda: iv.zoom_by(1.25)),
+                               ("Fit", "Fit image to window (Ctrl+0)", iv.fit), ("Fill", "Fill window, cropping overflow", iv.fill),
+                               ("100%", "Actual size (Ctrl+1)", iv.actual_size), ("Center", "Center image (Ctrl+Shift+M)", iv.center)]:
+            b = QPushButton(text); b.setToolTip(shortcut_tip(desc)); b.setAutoDefault(False)
             b.setFixedWidth(34 if len(text) == 1 else 56); b.clicked.connect(lambda _, fn=fn: fn())
             lay.addWidget(b)
         self.zoom_label = QLabel(); self.zoom_label.setMinimumWidth(60)
@@ -451,7 +457,7 @@ class MainWindow(QMainWindow):
         for e in effects.EFFECTS:
             it = QTreeWidgetItem(cats[e.category], [e.name])
             it.setData(0, Qt.ItemDataRole.UserRole, e.name)
-            it.setToolTip(0, e.summary)
+            it.setToolTip(0, tip(e.name, e.summary.replace("\n", "\n\n"), hint="Double-click to open its settings"))
         self.tree.expandAll()
         self._update_image_availability()
 
@@ -466,7 +472,7 @@ class MainWindow(QMainWindow):
                     continue
                 blocked = self._needs_rect(e)
                 it.setForeground(0, grey if blocked else QBrush())
-                it.setToolTip(0, e.summary + ("\n\nNeeds a rectangle selection (or none). Double-click to switch." if blocked else ""))
+                it.setToolTip(0, tip(e.name, e.summary.replace("\n", "\n\n"), hint=("Needs a rectangle selection (or none). Double-click to switch." if blocked else "Double-click to open its settings")))
 
     def _show_desc(self, item):
         name = item.data(0, Qt.ItemDataRole.UserRole) if item else None
