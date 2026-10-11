@@ -342,16 +342,3 @@ def help_html(e, with_glossary: bool = True) -> str:
         body += f"<h4>In audio</h4><p>{html.escape(e.audio)}</p>"
     body += f"<h4>Settings</h4><ul>{rows}</ul>" if rows else "<p><i>No settings: it just applies.</i></p>"
     return body + (GLOSSARY if with_glossary else "")
-
-
-def reference_html(effects: list) -> str:
-    """Every effect on one page, grouped by category in the order they appear in the effect list."""
-    out, cats = ["<h2>Effect reference</h2>"], {}
-    for e in effects:
-        cats.setdefault(e.category, []).append(e)
-    for cat, items in cats.items():
-        out.append(f"<h3>{html.escape(cat)}</h3>")
-        for e in items:
-            out.append(f"<p><b>{html.escape(e.name)}</b>: {html.escape(e.summary).replace(chr(10), '<br>')}"
-                       + (f"<br><i>In audio:</i> {html.escape(e.audio)}" if e.audio else "") + "</p>")
-    return "".join(out) + GLOSSARY

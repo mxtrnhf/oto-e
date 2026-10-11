@@ -15,7 +15,9 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialo
                              QWidget)
 
 from . import effects, exportopts
-from .helptext import help_html, reference_html
+from .helptext import help_html
+from .helpdoc import controls_sections, reference_sections
+from .helpview import HelpDialog
 from .core import BYTES_PER_SAMPLE, FORMAT_NAMES, INTERLEAVED, MODE_NAMES, Document, Rect, norm_sel, run_as_rect, run_rows
 from .effects import SR, Effect, Param
 from .history import HistoryPanel
@@ -374,8 +376,9 @@ class MainWindow(QMainWindow):
         self._act(m, "Zoom Waveform to Fit", lambda: self.wave._set_view(0, len(self.wave.x)), "Ctrl+Shift+0")
 
         m = self.menuBar().addMenu("&Help")
+        self._act(m, "&Controls", lambda: HelpDialog("Controls", controls_sections, self).show(), "F1")
         tape_info = next((e.info for e in effects.EFFECTS if e.info), "")
-        self._act(m, "&Effect reference", lambda: InfoDialog("Effect reference", reference_html(effects.EFFECTS), self).show())
+        self._act(m, "&Effect reference", lambda: HelpDialog("Effect reference", lambda c: reference_sections(effects.EFFECTS, c, CATEGORY_ORDER), self).show())
         self._act(m, "&Tape emulation guide", lambda: InfoDialog("Tape emulation guide", tape_info, self).show())
 
         m = self.menuBar().addMenu("&Data")
