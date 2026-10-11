@@ -69,5 +69,4 @@ def history_text(doc: Document) -> tuple[str, int] | None:
         settings = _settings(info)
         if settings:
             lines.append(_wrap(settings, "   "))
-    lines += ["", "Made with Oto-e: https://github.com/mxtrnhf/oto-e"]
     return "\n".join(lines), len(steps)
