@@ -41,15 +41,17 @@ class Effect:
     info: str = ""  # optional hand-written HTML guide; otherwise the help page is generated from `summary` and the Param.help texts
     summary: str = ""  # what the effect does, in picture terms (see helptext.py)
     audio: str = ""  # what it is for in ordinary audio work (see helptext.py)
+    randomizable: bool = True  # False: never picked by Randomize (too slow, or too heavy to surprise someone with)
+    domain: str = "audio"  # "audio": fn(x, sr, **params) on the sample stream. "image": fn(img, **params) on an (h, w, 3) uint8 picture
 
 
 EFFECTS: list[Effect] = []
 
 
 def effect(name: str, category: str, params: list[Param] | None = None, presets: dict[str, dict] | None = None,
-           info: str = ""):
+           info: str = "", domain: str = "audio"):
     def deco(fn):
-        EFFECTS.append(Effect(name, category, fn, params or [], presets or {}, info))
+        EFFECTS.append(Effect(name, category, fn, params or [], presets or {}, info, domain=domain))
         return fn
     return deco
 
@@ -691,13 +693,17 @@ def random_params(eff: Effect, rng: np.random.Generator | None = None) -> dict:
     return out
 
 
-def random_effect(rng: np.random.Generator | None = None) -> tuple[Effect, dict]:
+def random_effect(rng: np.random.Generator | None = None, allow_image: bool = True) -> tuple[Effect, dict]:
     rng = rng or np.random.default_rng()
-    eff = EFFECTS[int(rng.integers(len(EFFECTS)))]
+    pool = [e for e in EFFECTS if e.randomizable and (allow_image or e.domain == "audio")]
+    eff = pool[int(rng.integers(len(pool)))]
     return eff, random_params(eff, rng)
 
 
 from . import tape  # noqa: E402,F401  (registers the tape emulation effect)
+from . import imagefx  # noqa: E402,F401  (registers the picture-domain effects)
+
+by_name("Tape Recording (record → age → playback)").randomizable = False  # can take a minute or more on a large image
 from . import helptext as _helptext  # noqa: E402
 
 _helptext.apply(EFFECTS)

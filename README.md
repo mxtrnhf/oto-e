@@ -35,7 +35,15 @@ On some Linux distros you may need `python3-venv` and the Qt xcb libraries (`lib
 - **Ctrl+C** copies the selection (or the whole image) to the clipboard as a picture, ready to paste into other apps. Unselected ends of the first and last row are transparent.
 - Ctrl+R repeats the last effect. On the waveform: wheel zooms, Shift+wheel / middle-drag pans, double-click fits.
 - **Data** menu: interleaved RGB (classic) or planar (R, then G, then B) interpretation.
-- Save never overwrites your original unless you choose it: first Save asks for a path; *Save a Copy* leaves the current file untouched.
+- Save never overwrites your original unless you choose it: first Save asks for a path, and *Save As* picks a new one. *Export a copy* (Ctrl+E) writes a copy without changing which file you are working on, handy for dumping variants. Formats: PNG, JPEG, WebP (lossless), BMP, TIFF, JPEG 2000, TGA.
+
+## Image effects
+
+Besides the audio-style effects, the **Image** category works on the picture itself: Pixel Sort, Channel Swap,
+Chromatic Aberration, Row Shift, Warp, Block Displacement, Pixelate, JPEG Crunch (one harsh pass, optionally corrupting the
+compressed data) and JPEG Cruncher (hundreds of gentle re-saves, like a picture recovered from an abandoned Soviet computer in Mongolia). They apply to the whole image or to a **rectangle selection**; with a
+reading-order (run) selection they are unavailable, so switch to rectangle selection first. Randomize skips them
+while a run selection is active.
 
 ## Tape emulation
 
@@ -51,6 +59,12 @@ On some Linux distros you may need `python3-venv` and the Qt xcb libraries (`lib
 Good to know: colour is stored at ~14.7 kHz in the "audio", so lost treble = lost colour. By default timing errors (wow, flutter, speed)
 snap to whole pixels so they shear the picture without rotating the hue; switch *Timing errors* to "Rotate hue freely" for rainbow chaos.
 Several generations on large images can take a few seconds per preview; untick *Live preview* if it feels slow.
+
+## Credits
+
+The Image effects were inspired by [gfejer/databender](https://github.com/gfejer/databender) (GPL-3.0), a different
+tool that applies pixel-level glitch effects to images and video. Oto-e is an unrelated project with its own code;
+the effects here are written from scratch.
 
 ## License
 

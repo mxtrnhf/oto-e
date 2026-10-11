@@ -188,6 +188,50 @@ HELP: dict[str, tuple[str, dict[str, str]]] = {
          "gens": "How many times it was re-recorded onto another tape. Each copy adds noise and loses treble.",
          "plays": "How many times the final tape was played. Head wear dulls the treble and adds dropouts.",
          "seed": "Changes the random pattern of noise and dropouts; the same seed gives the same result."}),
+    # ----------------------------------------------------------------- Image
+    "Pixel Sort": ("Sorts runs of pixels by brightness, hue or a colour channel: the classic glitch-art smear. Only pixels inside the chosen range join a run, so the extremes stay put while the middle streaks.",
+                   {"axis": "Sort along each row (horizontal streaks) or each column (vertical streaks).",
+                    "key": "What pixels are ranked by.",
+                    "lo": "Pixels below this share of the key's range are left alone and break the runs.",
+                    "hi": "Pixels above this share are left alone and break the runs.",
+                    "order": "Whether each run goes from low to high or high to low."}),
+    "Channel Swap": ("Reorders the red, green and blue channels: skin turns blue, skies turn orange.",
+                     {"perm": "Which channel goes where."}),
+    "Chromatic Aberration": ("Slides the red, green and blue channels apart, like a cheap lens with colour fringes. The edges wrap around.",
+                             {"rx": "Move the red channel right (negative = left).", "ry": "Move the red channel down (negative = up).",
+                              "gx": "Move the green channel right.", "gy": "Move the green channel down.",
+                              "bx": "Move the blue channel right.", "by": "Move the blue channel down."}),
+    "Row Shift": ("Slides random rows (or columns) sideways by random amounts, like a tearing video signal. Edges wrap around.",
+                  {"axis": "Shift whole rows sideways or whole columns up and down.",
+                   "prob": "Share of rows (columns) that move.", "amount": "Largest shift, either direction.",
+                   "seed": "Picks the random pattern; the same seed gives the same result."}),
+    "Warp": ("Bends the picture by sliding each row (or column) by an amount that follows a sine wave or a straight slant. Edges wrap around.",
+             {"axis": "Slide rows sideways or columns up and down.",
+              "mode": "A wavy bend, or a slant that grows from one edge to the other.",
+              "amount": "Largest slide (sine) or total slant across the picture. Negative reverses it.",
+              "period": "Distance between waves for the sine shape."}),
+    "Block Displacement": ("Copies random rectangles to nearby places, as if chunks of the picture had been misplaced.",
+                           {"count": "How many blocks are moved, one after another (later ones can pick up earlier ones).",
+                            "lo": "Smallest block side.", "hi": "Largest block side.",
+                            "shift": "How far a block may land from where it came from.",
+                            "seed": "Picks the random pattern; the same seed gives the same result."}),
+    "Pixelate": ("Turns the picture into big square blocks.",
+                 {"size": "Side of one block.", "mode": "Fill each block with the average colour or with its top-left pixel (crunchier)."}),
+    "JPEG Crunch": ("Saves the picture as a low-quality JPEG in memory and loads it back, leaving blocky artifacts and colour banding. Corrupt bytes also damages the compressed data before it is decoded, the way a real broken file glitches.",
+                    {"quality": "JPEG quality. 1 = a mess, 100 = nearly clean.",
+                     "flips": "How many bytes of the compressed picture data are replaced with random values. 0 = none.",
+                     "seed": "Picks which bytes are damaged; the same seed gives the same result."}),
+    "JPEG Cruncher": ("Makes the picture look like it was recovered from an abandoned Soviet computer in Mongolia.\nIt is saved as a JPEG and reloaded over and over, like a picture that has been re-saved hundreds of times: blocky, smeared, with colour bleeding and ringing halos around edges. More generations and lower quality push it toward barely recognisable.",
+                      {"gens": "How many times it is saved and reloaded. Each pass adds a little more damage, so the picture decays gradually instead of all at once. More generations take longer.",
+                       "quality": "JPEG quality of every save. 85–95 = a slow, subtle decay; 40–60 = visible blocks within a few passes; below 20 = a mess.",
+                       "chroma": "How much colour detail each save keeps. Quarter (4:2:0) is what most real JPEGs use and makes colours bleed past edges.",
+                       "drift": "Each save moves the picture by up to this many pixels, so the 8×8 blocks of different passes don't line up. This is what makes real re-saves ripple and smear; at 0 the same blocks are re-compressed and the damage stops growing. The shifts are undone at the end, so nothing ends up moved.",
+                       "resize": "Between saves the picture is shrunk by a random amount up to this much, saved as a JPEG at that smaller size, then blown back up, like an image re-uploaded at different sizes. Blocks from different passes end up at different scales, which smears the damage and makes it look less regular.",
+                       "vary": "Whether every save shrinks by exactly the Resize amount (0 %, a steady softening) or by a random amount between nothing and that (100 %, like uploads at assorted sizes).",
+                       "stretch": "How differently the width and the height are resized each time. 0 % = both shrink together; 100 % = each axis picks its own amount, so the blocks are squashed into wide or tall rectangles and the picture looks stretched.",
+                       "resample": "How the picture is scaled between saves. Smooth blurs it, Sharp keeps harder edges and adds halos, and Blocky leaves chunky square pixels.",
+                       "flips": "How many bytes of the compressed data are replaced with random values in the last save, for broken-file glitches. 0 = none.",
+                       "seed": "Picks the random drift and damaged bytes; the same seed gives the same result."}),
 }
 
 
@@ -289,7 +333,10 @@ def help_html(e, with_glossary: bool = True) -> str:
         return e.info
     rows = "".join(f"<li><b>{html.escape(p.label)}</b> <span style='color:gray'>({html.escape(_fmt_range(p))})</span><br>{html.escape(p.help)}</li>"
                    for p in e.params)
-    body = f"<h3>{html.escape(e.name)}</h3><p>{html.escape(e.summary)}</p>"
+    body = f"<h3>{html.escape(e.name)}</h3><p>{html.escape(e.summary).replace(chr(10), '<br>')}</p>"
+    if e.domain == "image":
+        body += "<p><i>Picture effect: works on the whole image or a rectangle selection (not a run selection), and ignores the Data menu setting.</i></p>"
+        with_glossary = False
     if e.audio:
         body += f"<h4>In audio</h4><p>{html.escape(e.audio)}</p>"
     body += f"<h4>Settings</h4><ul>{rows}</ul>" if rows else "<p><i>No settings: it just applies.</i></p>"
@@ -304,6 +351,6 @@ def reference_html(effects: list) -> str:
     for cat, items in cats.items():
         out.append(f"<h3>{html.escape(cat)}</h3>")
         for e in items:
-            out.append(f"<p><b>{html.escape(e.name)}</b>: {html.escape(e.summary)}"
+            out.append(f"<p><b>{html.escape(e.name)}</b>: {html.escape(e.summary).replace(chr(10), '<br>')}"
                        + (f"<br><i>In audio:</i> {html.escape(e.audio)}" if e.audio else "") + "</p>")
     return "".join(out) + GLOSSARY

@@ -7,7 +7,7 @@ import numpy as np
 from pathlib import Path
 
 from PyQt6.QtCore import QLoggingCategory, QObject, QRunnable, QSettings, Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QImage, QKeySequence, QShortcut
+from PyQt6.QtGui import QAction, QActionGroup, QBrush, QImage, QKeySequence, QPalette, QShortcut
 from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
                              QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
                              QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter, QTextBrowser, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
@@ -15,15 +15,17 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialo
 
 from . import effects
 from .helptext import help_html, reference_html
-from .core import INTERLEAVED, MODE_NAMES, Document, Rect, norm_sel
+from .core import INTERLEAVED, MODE_NAMES, Document, Rect, norm_sel, run_as_rect, run_rows
 from .effects import SR, Effect, Param
 from .history import HistoryPanel
 from .views import ImageView, WaveformView
 
 OPEN_FILTER = "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp *.gif *.ppm);;All files (*)"
-SAVE_FILTER = "PNG (*.png);;JPEG (*.jpg *.jpeg);;BMP (*.bmp);;TIFF (*.tif *.tiff);;WebP (*.webp)"
+SAVE_FORMATS = [("PNG", ".png"), ("JPEG", ".jpg .jpeg"), ("WebP", ".webp"), ("BMP", ".bmp"), ("TIFF", ".tif .tiff"),
+                ("JPEG 2000", ".jp2"), ("TGA", ".tga")]
+SAVE_FILTER = ";;".join(f"{n} ({' '.join('*' + e for e in exts.split())})" for n, exts in SAVE_FORMATS)
 CATEGORY_ORDER = ["Volume", "EQ & Filters", "Delay & Reverb", "Modulation", "Distortion", "Spectral",
-                  "Time & Glitch", "Bits & Bytes", "Tape & Analog", "Special"]
+                  "Time & Glitch", "Bits & Bytes", "Image", "Tape & Analog", "Special"]
 
 
 class InfoDialog(QDialog):
@@ -141,7 +143,10 @@ class EffectDialog(QDialog):
         live_row = QHBoxLayout(); live_row.addWidget(self.live); live_row.addWidget(self.busy, 1)
         small_row = QHBoxLayout(); small_row.addWidget(self.small); small_row.addWidget(self.small_pct)
         small_row.addWidget(QLabel("of the selection / image")); small_row.addStretch(1)
-        lay.addLayout(live_row); lay.addLayout(small_row); lay.addWidget(bb)
+        lay.addLayout(live_row)
+        if eff.domain == "audio":  # picture effects depend on the whole picture, so they always preview in full
+            lay.addLayout(small_row)
+        lay.addWidget(bb)
         self.timer = QTimer(self, singleShot=True, interval=120)
         self.timer.timeout.connect(self._preview)
         self._changed()
@@ -164,6 +169,8 @@ class EffectDialog(QDialog):
 
     def small_percent(self) -> int | None:
         """Share of the target to preview, or None for a full preview."""
+        if self.eff.domain == "image":
+            return None
         return self.small_pct.value() if self.small.isChecked() and self.small_pct.value() < 100 else None
 
     def set_busy(self, busy: bool):
@@ -234,7 +241,7 @@ class MainWindow(QMainWindow):
         left.setStretchFactor(0, 3); left.setStretchFactor(1, 1)
         left.setSizes([620, 170])  # starting split: waveform strip is short; drag the handle for more
 
-        self.search = QLineEdit(placeholderText="Search effects…", clearButtonEnabled=True)
+        self.search = QLineEdit(placeholderText="Search effects", clearButtonEnabled=True)
         self.search.textChanged.connect(self._filter_effects)
         self.tree = QTreeWidget(); self.tree.setHeaderHidden(True)
         self.tree.itemDoubleClicked.connect(self._tree_activate)
@@ -294,7 +301,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         self.a_save = self._act(m, "&Save", self.save, QKeySequence.StandardKey.Save)
         self._act(m, "Save &As…", self.save_as, "Ctrl+Shift+S")
-        self._act(m, "Save a &Copy…", self.save_copy, "Ctrl+Alt+S")
+        self._act(m, "&Export a copy…", self.export, "Ctrl+E")
         m.addSeparator()
         self.a_revert = self._act(m, "Re&vert to Original", self.revert)
         m.addSeparator()
@@ -333,8 +340,8 @@ class MainWindow(QMainWindow):
 
         m = self.menuBar().addMenu("&Help")
         tape_info = next((e.info for e in effects.EFFECTS if e.info), "")
-        self._act(m, "&Effect reference…", lambda: InfoDialog("Effect reference", reference_html(effects.EFFECTS), self).show())
-        self._act(m, "&Tape emulation guide…", lambda: InfoDialog("Tape emulation guide", tape_info, self).show())
+        self._act(m, "&Effect reference", lambda: InfoDialog("Effect reference", reference_html(effects.EFFECTS), self).show())
+        self._act(m, "&Tape emulation guide", lambda: InfoDialog("Tape emulation guide", tape_info, self).show())
 
         m = self.menuBar().addMenu("&Data")
         g = QActionGroup(self)
@@ -374,16 +381,30 @@ class MainWindow(QMainWindow):
         for c in CATEGORY_ORDER:
             cats[c] = QTreeWidgetItem(self.tree, [c])
         for e in effects.EFFECTS:
-            it = QTreeWidgetItem(cats[e.category], [e.name + "…"])
+            it = QTreeWidgetItem(cats[e.category], [e.name])
             it.setData(0, Qt.ItemDataRole.UserRole, e.name)
             it.setToolTip(0, e.summary)
         self.tree.expandAll()
+        self._update_image_availability()
+
+    def _update_image_availability(self):
+        """Dim the picture effects while the selection is a run, since they can't apply to one."""
+        grey = QBrush(self.palette().color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text))
+        for i in range(self.tree.topLevelItemCount()):
+            top = self.tree.topLevelItem(i)
+            for j in range(top.childCount()):
+                it = top.child(j); e = effects.by_name(it.data(0, Qt.ItemDataRole.UserRole))
+                if e.domain != "image":
+                    continue
+                blocked = self._needs_rect(e)
+                it.setForeground(0, grey if blocked else QBrush())
+                it.setToolTip(0, e.summary + ("\n\nNeeds a rectangle selection (or none). Double-click to switch." if blocked else ""))
 
     def _show_desc(self, item):
         name = item.data(0, Qt.ItemDataRole.UserRole) if item else None
         if name:
             e = effects.by_name(name)
-            self.desc.setText(f"<b>{e.name}</b><br>{e.summary}")
+            self.desc.setText(f"<b>{e.name}</b><br>{e.summary.replace(chr(10), '<br>')}")
             self.desc.setStyleSheet("")
         else:
             self.desc.setText("Select an effect to see what it does. Double-click to apply. Right-click for more help.")
@@ -396,7 +417,7 @@ class MainWindow(QMainWindow):
             return
         e = effects.by_name(name)
         menu = QMenu(self)
-        menu.addAction("About this effect…", lambda: InfoDialog(e.name, help_html(e), self).show())
+        menu.addAction("About this effect", lambda: InfoDialog(e.name, help_html(e), self).show())
         menu.addAction("Apply…", lambda: self.run_effect(e))
         menu.exec(self.tree.viewport().mapToGlobal(pos))
 
@@ -456,6 +477,7 @@ class MainWindow(QMainWindow):
         self.sel = sel
         self._sync_outlines()
         self._update_sel_label()
+        self._update_image_availability()
         self.selChanged.emit(sel)
 
     def _set_selection(self, sel):
@@ -466,7 +488,7 @@ class MainWindow(QMainWindow):
             self.wave.set_selection(sel)
         self._on_selection(sel)
 
-    def set_free_selection(self, on: bool):
+    def set_free_selection(self, on: bool, hint: bool = True):
         """Free selection mode: dragging on the image draws a rectangle. Off = the normal run-of-rows selection."""
         self.free_mode = on
         self.image_view.free_mode = on
@@ -474,7 +496,8 @@ class MainWindow(QMainWindow):
             self.a_free.setChecked(on)
         if on:
             self.statusBar().showMessage("Free selection on: drag a rectangle on the image (Space+drag pans)", 8000)
-            self._free_hint()
+            if hint:
+                self._free_hint()
 
     def _free_hint(self):
         if str(self.settings.value("free_hint_off", "0")) in ("1", "true"):
@@ -568,16 +591,15 @@ class MainWindow(QMainWindow):
         base = d.path or (Path(self.settings.value("lastdir", str(Path.home()))) / (Path(d.source_name).stem + "_bent.png"))
         p, flt = QFileDialog.getSaveFileName(self, title, str(base), SAVE_FILTER)
         if p and not Path(p).suffix:
-            ext = {"PNG": ".png", "JPEG": ".jpg", "BMP": ".bmp", "TIFF": ".tif", "WebP": ".webp"}[flt.split(" ")[0]]
-            p += ext
+            p += next(exts.split()[0] for n, exts in SAVE_FORMATS if flt.startswith(n + " ("))
         return p or None
 
-    def _write(self, p, adopt):
+    def _write(self, p, adopt=True):
         try:
             self.doc.save(p, adopt)
         except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, "Can't save", str(e)); return False
-        self.statusBar().showMessage(f"Saved {p}", 4000)
+        self.statusBar().showMessage(f"{'Saved' if adopt else 'Exported'} {p}", 4000)
         self._refresh()
         return True
 
@@ -586,14 +608,15 @@ class MainWindow(QMainWindow):
             return
         if self.doc.path is None:
             return self.save_as()
-        self._write(str(self.doc.path), True)
+        self._write(str(self.doc.path))
 
     def save_as(self):
         if self.doc.loaded and (p := self._ask_path("Save As")):
-            self._write(p, True)
+            self._write(p)
 
-    def save_copy(self):
-        if self.doc.loaded and (p := self._ask_path("Save a Copy")):
+    def export(self):
+        """Write a copy and carry on: the document keeps its file and its unsaved-changes mark."""
+        if self.doc.loaded and (p := self._ask_path("Export a copy")):
             self._write(p, False)
 
     def revert(self):
@@ -640,6 +663,8 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Open an image first", 3000); return
         if getattr(self, "_dlg", None):  # one effect dialog at a time
             self._dlg.raise_(); return
+        if self._needs_rect(eff) and not self._offer_rect_mode(eff):
+            return
 
         def preview(vals):
             self.request_preview(eff, vals)
@@ -820,10 +845,35 @@ class MainWindow(QMainWindow):
         self._refresh()
         self.statusBar().showMessage(f"Applied {eff.name}", 3000)
 
+    def _needs_rect(self, eff) -> bool:
+        """True if `eff` is a picture effect but the selection is a run, which has no picture shape
+        (a run of whole rows does: it is a full-width rectangle)."""
+        sel = norm_sel(self.sel)
+        if eff.domain != "image" or sel is None or isinstance(sel, Rect):
+            return False
+        return run_as_rect(sel, self.doc.mode, self.doc.size) is None
+
+    def _offer_rect_mode(self, eff) -> bool:
+        """Explain why a picture effect can't use the current selection and offer to fix it. True if it now can."""
+        W, H = self.doc.size
+        y0, y1 = run_rows(norm_sel(self.sel), self.doc.mode, self.doc.size)
+        box = QMessageBox(self); box.setIcon(QMessageBox.Icon.Question); box.setWindowTitle(eff.name)
+        box.setText(f"<b>{eff.name}</b> works on the picture, so it needs a rectangle selection (or no selection).")
+        box.setInformativeText(f"Your current selection follows the data in reading order, which isn't a rectangle. Switch to rectangle "
+                               f"selection? It will select the full-width band of rows it touches (rows {y0}–{y1 - 1}). "
+                               f"You can then drag a smaller rectangle.")
+        go = box.addButton("Switch to rectangle selection", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(QMessageBox.StandardButton.Cancel); box.exec()
+        if box.clickedButton() is not go:
+            return False
+        self.set_free_selection(True, hint=False)
+        self._set_selection(Rect(0, y0, W, y1))
+        return True
+
     def randomize(self):
         if not self.doc.loaded:
             self.statusBar().showMessage("Open an image first", 3000); return
-        eff, params = effects.random_effect()
+        eff, params = effects.random_effect(allow_image=not any(self._needs_rect(e) for e in effects.EFFECTS if e.domain == "image"))
         self._apply(eff, params, random=True)
         self._rand_node = self.doc.node  # lets reroll() tell whether the last edit was a randomize
         vals = ", ".join(f"{k}={v}" for k, v in params.items())
@@ -837,6 +887,8 @@ class MainWindow(QMainWindow):
 
     def repeat_last(self):
         if self.last_effect and self.doc.loaded:
+            if self._needs_rect(self.last_effect[0]) and not self._offer_rect_mode(self.last_effect[0]):
+                return
             self._apply(*self.last_effect)
 
 

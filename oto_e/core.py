@@ -36,6 +36,28 @@ def norm_sel(sel):
     return sel if sel and sel[1] - sel[0] > 1 else None
 
 
+def run_as_rect(sel, mode: int, size) -> "Rect | None":
+    """The rectangle a run of samples covers exactly, if it is one: whole rows (or the whole image) of full width."""
+    W, H = size; a, b = sel
+    if mode == INTERLEAVED:
+        r = 3 * W
+        return Rect(0, a // r, W, b // r) if b > a and a % r == 0 and b % r == 0 else None
+    return Rect(0, 0, W, H) if a == 0 and b == 3 * W * H else None
+
+
+def run_rows(sel, mode: int, size) -> tuple[int, int]:
+    """First row and one past the last row that a run of samples touches."""
+    W, H = size; a, b = sel
+    if mode == INTERLEAVED:
+        p0, p1 = a // 3, -(-b // 3)
+    else:
+        P = W * H
+        if b - a >= P or a // P != (b - 1) // P:
+            return 0, H
+        p0, p1 = a % P, (b - 1) % P + 1
+    return p0 // W, min(-(-p1 // W), H)
+
+
 def _rect_view(px: np.ndarray, mode: int, size, r: Rect) -> np.ndarray:
     """The rectangle as a writable array in stream order: rows of 3w samples (interleaved) or (plane, row, x) (planar)."""
     W, H = size
@@ -154,10 +176,13 @@ class Document:
         self.path = None  # first Save always asks, so the source is never overwritten by accident
         self.dirty = False
 
-    def save(self, path: str, adopt: bool):
+    def save(self, path: str, adopt: bool = True):
+        """Write the image. `adopt`: make `path` the document's file and mark it saved (Save, Save As);
+        False just exports a copy and leaves the document as it was."""
         w, h = self.size
         im = Image.fromarray(self.pixels.reshape(h, w, 3), "RGB")
-        kw = {"quality": 95, "subsampling": 0} if Path(path).suffix.lower() in (".jpg", ".jpeg") else {}
+        ext = Path(path).suffix.lower()
+        kw = {"quality": 95, "subsampling": 0} if ext in (".jpg", ".jpeg") else {"lossless": True} if ext == ".webp" else {}
         im.save(path, **kw)
         if adopt:
             self.path = Path(path)
@@ -178,6 +203,8 @@ class Document:
         filters build up their tails, as they would have in a full run."""
         mode = self.mode if mode is None else mode
         out = self.live.copy() if base is None else base
+        if eff.domain == "image":
+            return self._compute_image(eff, params, norm_sel(sel), out, mode)
         if isinstance(sel, Rect):
             # the effect sees the rectangle as its own small picture. `keep_rows` leading rows are a lead-in:
             # they are processed (so tails build up) but their original pixels are kept.
@@ -201,6 +228,20 @@ class Document:
         lo = 0 if keep_from is None else min(max(keep_from - a, 0), len(seg))
         if lo < len(seg):
             write_range(out, mode, a + lo, b, res[lo:len(seg)])
+        return out
+
+    def _compute_image(self, eff: Effect, params: dict, sel, out: np.ndarray, mode: int) -> np.ndarray:
+        """Apply a picture-domain effect to the whole image or a rectangle; `out` is modified and returned.
+        A run selection (reading order) has no picture shape, so it is refused unless it covers whole rows."""
+        if sel is not None and not isinstance(sel, Rect):
+            sel = run_as_rect(sel, mode, self.size)
+            if sel is None:
+                raise ValueError("Image effects need a rectangle selection (or no selection). Switch to rectangle selection.")
+        W, H = self.size
+        r = sel or Rect(0, 0, W, H)
+        view = out.reshape(H, W, 3)[r.y0:r.y1, r.x0:r.x1]
+        res = np.asarray(eff.fn(view.copy(), **params))
+        view[...] = np.clip(res, 0, 255).astype(np.uint8).reshape(view.shape)
         return out
 
     def commit(self, pixels: np.ndarray, info: dict):
