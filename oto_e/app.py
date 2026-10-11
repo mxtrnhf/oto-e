@@ -349,7 +349,7 @@ class MainWindow(QMainWindow):
         self.a_redo = self._act(m, "&Redo", self.redo, "Ctrl+Shift+Z")
         m.addSeparator()
         self.a_copy = self._act(m, "&Copy", self.copy_image, QKeySequence.StandardKey.Copy)
-        self._act(m, "Copy &Whole Image", lambda: self.copy_image(whole=True))
+        self._act(m, "Copy &Whole Image", lambda: self.copy_image(whole=True), "Ctrl+Shift+C")
         m.addSeparator()
         self.a_free = self._act(m, "&Rectangle selection mode", lambda on: self.set_free_selection(on), checkable=True)
         self.a_free.setStatusTip("Drag rectangles on the image instead of runs of rows")
@@ -369,7 +369,7 @@ class MainWindow(QMainWindow):
         self._act(m, "Fit Image to Window", self.image_view.fit, "Ctrl+0")
         self._act(m, "Fill Window", self.image_view.fill)
         self._act(m, "Actual Size (100%)", self.image_view.actual_size, "Ctrl+1")
-        self._act(m, "Center Image", self.image_view.center, "Ctrl+Shift+C")
+        self._act(m, "Center Image", self.image_view.center, "Ctrl+Shift+M")
         self._act(m, "Zoom In", lambda: self.image_view.zoom_by(1.25), "Ctrl+=")
         self._act(m, "Zoom Out", lambda: self.image_view.zoom_by(0.8), "Ctrl+-")
         m.addSeparator()
@@ -432,7 +432,7 @@ class MainWindow(QMainWindow):
         iv = self.image_view
         for text, tip, fn in [("−", "Zoom out (Ctrl+-)", lambda: iv.zoom_by(0.8)), ("+", "Zoom in (Ctrl+=)", lambda: iv.zoom_by(1.25)),
                               ("Fit", "Fit image to window (Ctrl+0)", iv.fit), ("Fill", "Fill window, cropping overflow", iv.fill),
-                              ("100%", "Actual size (Ctrl+1)", iv.actual_size), ("Center", "Center image (Ctrl+Shift+C)", iv.center)]:
+                              ("100%", "Actual size (Ctrl+1)", iv.actual_size), ("Center", "Center image (Ctrl+Shift+M)", iv.center)]:
             b = QPushButton(text); b.setToolTip(tip); b.setAutoDefault(False)
             b.setFixedWidth(34 if len(text) == 1 else 56); b.clicked.connect(lambda _, fn=fn: fn())
             lay.addWidget(b)

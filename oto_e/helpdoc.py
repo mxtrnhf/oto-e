@@ -66,7 +66,7 @@ def controls_sections(c: Colors) -> list[Section]:
             Section("image-view", "Zooming and panning", two([
                 (k("Mouse wheel"), "Zoom in and out around the pointer"),
                 (k("Space + drag") + " or " + k("middle-drag"), "Pan. Hold Space with the pointer over the image"),
-                ("Toolbar buttons above the image", "− + Fit, Fill, 100 %, Center. Same as the View menu (Ctrl+0, Ctrl+1, Ctrl+Shift+C, Ctrl+=, Ctrl+-)"),
+                ("Toolbar buttons above the image", "− + Fit, Fill, 100 %, Center. Same as the View menu (Ctrl+0, Ctrl+1, Ctrl+Shift+M, Ctrl+=, Ctrl+-)"),
             ])),
             Section("image-select", "Selecting",
                     "<p>Dragging selects; what a drag makes depends on the <b>Selection</b> switch (see <i>Selection modes</i>). The outline shows what is "
@@ -74,7 +74,7 @@ def controls_sections(c: Colors) -> list[Section]:
                         (k("Drag"), "Select a Run or a Rectangle"),
                         (k("Click") + " (no drag)", "Clear the selection"),
                         (k("Ctrl+A") + " / " + k("Ctrl+Shift+A"), "Select all / select none"),
-                        (k("Ctrl+C"), "Copy the selection (or the whole image) as a picture"),
+                        (k("Ctrl+C") + " / " + k("Ctrl+Shift+C"), "Copy the selection / the whole image as a picture"),
                     ]) + "<p>In <i>Planar</i> data layout a selection on the image covers the red plane only.</p>"),
             Section("compare", "Comparing with the original",
                     "<p><b>Hold the Compare button</b> in the toolbar, or <b>hold C</b> with the pointer over the image, to see the original. Let go and your "
@@ -188,11 +188,11 @@ def controls_sections(c: Colors) -> list[Section]:
             "File",
             (k("Ctrl+O"), "Open"), (k("Ctrl+S"), "Save"), (k("Ctrl+Shift+S"), "Save As"), (k("Ctrl+E"), "Export a copy"), (k("Ctrl+Q"), "Quit"),
             "Edit",
-            (k("Ctrl+Z"), "Undo"), (k("Ctrl+Shift+Z"), "Redo"), (k("Ctrl+C"), "Copy selection as a picture"),
+            (k("Ctrl+Z"), "Undo"), (k("Ctrl+Shift+Z"), "Redo"), (k("Ctrl+C"), "Copy selection as a picture"), (k("Ctrl+Shift+C"), "Copy the whole image as a picture"),
             (k("Ctrl+A"), "Select all"), (k("Ctrl+Shift+A"), "Select none"),
             (k("Ctrl+R"), "Repeat the last effect"), (k("Ctrl+Shift+R"), "Randomize"), (k("Ctrl+Shift+E"), "Revert the last randomize and try another"),
             "View",
-            (k("Ctrl+0"), "Fit image to window"), (k("Ctrl+1"), "Actual size (100 %)"), (k("Ctrl+Shift+C"), "Center the image"),
+            (k("Ctrl+0"), "Fit image to window"), (k("Ctrl+1"), "Actual size (100 %)"), (k("Ctrl+Shift+M"), "Center the image"),
             (k("Ctrl+="), "Zoom in"), (k("Ctrl+-"), "Zoom out"), (k("Ctrl+Shift+0"), "Fit the waveform"),
             "Held keys (pointer over the image)",
             (k("Space"), "Pan while dragging"), (k("C"), "Show the original while held"),

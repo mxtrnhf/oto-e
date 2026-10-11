@@ -37,7 +37,7 @@ On some Linux distros you may need `python3-venv` and the Qt xcb libraries (`lib
 - **Hold Space and drag** (or middle-drag) to pan the image; wheel zooms.
 - **Double-click** an effect on the right (or Apply…). Tweak sliders with live preview, OK to commit.
 - **🎲 Randomize** (Ctrl+Shift+R) applies a random effect with random settings to the selection. Undo (Ctrl+Z) if you don't like it.
-- **Ctrl+C** copies the selection (or the whole image) to the clipboard as a picture, ready to paste into other apps. Unselected ends of the first and last row are transparent.
+- **Ctrl+C** copies the selection (or the whole image) to the clipboard as a picture, ready to paste into other apps; **Ctrl+Shift+C** always copies the whole image. Unselected ends of the first and last row are transparent.
 - Ctrl+R repeats the last effect. On the waveform: wheel zooms, Shift+wheel / middle-drag pans, double-click fits.
 - **Data** menu (also in the toolbar): how the picture's bytes become audio, like the import settings in Audacity's raw import.
   *Layout*: interleaved RGB (classic) or planar (R, then G, then B). *Samples*: unsigned 8-bit (classic, one byte per sample),
