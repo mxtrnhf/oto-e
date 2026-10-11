@@ -31,6 +31,9 @@ On some Linux distros you may need `python3-venv` and the Qt xcb libraries (`lib
 - **Open** an image (Ctrl+O or drag it in). **Drag on the image** or **on the waveform** to select a range (on the image, a selection runs in reading order, left-to-right then top-to-bottom, like the data itself). Click to clear. The outline shows what's selected. No selection = whole image.
 - **Compare** (hold the toolbar button, or hold **C** with the pointer over the image) shows the original while held.
 - **Help → Controls** (F1) is a searchable guide with a section tree: every mouse and keyboard control, selection modes, data and sample formats, saving. **Help → Effect reference** lists every effect and setting.
+- **Selection: Run / Rectangle** (toolbar, always visible; ⓘ explains it) decides what dragging on the image creates. *Run* follows the data in
+  reading order, like the waveform. *Rectangle* draws a box that is treated as its own small picture, so audio effects behave differently
+  on it and the Image effects only work there. Switching clears the selection.
 - **Hold Space and drag** (or middle-drag) to pan the image; wheel zooms.
 - **Double-click** an effect on the right (or Apply…). Tweak sliders with live preview, OK to commit.
 - **🎲 Randomize** (Ctrl+Shift+R) applies a random effect with random settings to the selection. Undo (Ctrl+Z) if you don't like it.
@@ -48,7 +51,7 @@ On some Linux distros you may need `python3-venv` and the Qt xcb libraries (`lib
 Besides the audio-style effects, the **Image** category works on the picture itself: Pixel Sort, Channel Swap,
 Chromatic Aberration, Row Shift, Warp, Block Displacement, Pixelate, JPEG Crunch (one harsh pass, optionally corrupting the
 compressed data) and JPEG Cruncher (hundreds of gentle re-saves, like a picture recovered from an abandoned Soviet computer in Mongolia). They apply to the whole image or to a **rectangle selection**; with a
-reading-order (run) selection they are unavailable, so switch to rectangle selection first. Randomize skips them
+Run selection they are unavailable, so switch the toolbar to Rectangle first. Randomize skips them
 while a run selection is active.
 
 ## Tape emulation

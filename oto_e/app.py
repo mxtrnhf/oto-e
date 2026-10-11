@@ -9,7 +9,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import QLoggingCategory, QObject, QRunnable, QSettings, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QBrush, QImage, QKeySequence, QPalette, QShortcut
-from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
+from PyQt6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
                              QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
                              QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter, QTextBrowser, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                              QWidget)
@@ -254,7 +254,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.doc = Document()
-        self.sel = None  # None, a (start, end) run of samples, or a Rect (free selection)
+        self.sel = None  # None, a (start, end) run of samples, or a Rect (rectangle selection)
         self.free_mode = False
         self.last_effect: tuple[Effect, dict] | None = None
         self.last_params: dict[str, dict] = {}
@@ -351,7 +351,7 @@ class MainWindow(QMainWindow):
         self.a_copy = self._act(m, "&Copy", self.copy_image, QKeySequence.StandardKey.Copy)
         self._act(m, "Copy &Whole Image", lambda: self.copy_image(whole=True))
         m.addSeparator()
-        self.a_free = self._act(m, "Enable &free selection (rectangle)", lambda on: self.set_free_selection(on), checkable=True)
+        self.a_free = self._act(m, "&Rectangle selection mode", lambda on: self.set_free_selection(on), checkable=True)
         self.a_free.setStatusTip("Drag rectangles on the image instead of runs of rows")
         self._act(m, "Select &All", self.select_all, QKeySequence.StandardKey.SelectAll)
         self._act(m, "Select &None", lambda: self._set_selection(None), "Ctrl+Shift+A")
@@ -413,6 +413,19 @@ class MainWindow(QMainWindow):
         self.fmt_cb.setToolTip("How the picture's bytes are read as audio samples, like the encoding in Audacity's raw import.\n"
                                "Unsigned 8-bit is the classic one-byte-per-sample reading; 16-bit formats pair bytes up.")
         self.fmt_cb.currentIndexChanged.connect(self.set_sample_format); tb.addWidget(self.fmt_cb)
+        tb.addWidget(QLabel("  Selection: "))
+        self.sel_btns = QButtonGroup(self); self.sel_btns.setExclusive(True)
+        for i, (text, tip) in enumerate([
+                ("Run", "Dragging selects a stretch of the data in reading order, like the waveform. Audio effects run on it as one stream."),
+                ("Rectangle", "Dragging draws a box that becomes its own small picture. Needed for Image effects; audio effects see its rows joined.")]):
+            b = QPushButton(text); b.setCheckable(True); b.setAutoDefault(False); b.setToolTip(tip + "\nSwitching clears the selection.")
+            b.setChecked(i == 0); self.sel_btns.addButton(b, i); tb.addWidget(b)
+            b.setStyleSheet("QPushButton:checked { background-color: palette(highlight); color: palette(highlighted-text); font-weight: bold; }")
+        self.sel_btns.idClicked.connect(lambda i: self.set_free_selection(bool(i)))
+        ib = QPushButton("ⓘ"); ib.setAutoDefault(False)
+        side = self.sel_btns.button(0).sizeHint().height(); ib.setFixedSize(side, side)  # square, as tall as the Run / Rectangle buttons
+        ib.setToolTip("How the two selection modes change what effects do")
+        ib.clicked.connect(lambda: HelpDialog("Controls", controls_sections, self, start="selection").show()); tb.addWidget(ib)
 
     def _build_view_strip(self) -> QWidget:
         strip = QWidget(); lay = QHBoxLayout(strip); lay.setContentsMargins(4, 2, 4, 2)
@@ -540,6 +553,8 @@ class MainWindow(QMainWindow):
 
     def _on_selection(self, sel):
         self.sel = sel
+        if sel is not None and isinstance(sel, Rect) != self.free_mode:  # the switch always names the kind of selection that exists
+            self._show_selection_mode(isinstance(sel, Rect))
         self._sync_outlines()
         self._update_sel_label()
         self._update_image_availability()
@@ -553,14 +568,22 @@ class MainWindow(QMainWindow):
             self.wave.set_selection(sel)
         self._on_selection(sel)
 
-    def set_free_selection(self, on: bool, hint: bool = True):
-        """Free selection mode: dragging on the image draws a rectangle. Off = the normal run-of-rows selection."""
+    def _show_selection_mode(self, on: bool):
+        """Make the toolbar switch, the menu item and the image view agree on the selection mode (no side effects)."""
         self.free_mode = on
         self.image_view.free_mode = on
-        if self.a_free.isChecked() != on:
-            self.a_free.setChecked(on)
-        if on:
-            self.statusBar().showMessage("Free selection on: drag a rectangle on the image (Space+drag pans)", 8000)
+        self.a_free.setChecked(on)
+        self.sel_btns.button(int(on)).setChecked(True)
+
+    def set_free_selection(self, on: bool, hint: bool = True):
+        """Rectangle mode: dragging on the image draws a box. Off = Run mode, the run-of-rows selection. Changing it
+        clears the selection: a run and a rectangle are different things, and the switch must always describe the selection."""
+        changed = on != self.free_mode
+        self._show_selection_mode(on)
+        if changed:
+            self._set_selection(None)
+        if on and changed:
+            self.statusBar().showMessage("Rectangle selection: drag a box on the image (Space+drag pans)", 8000)
             if hint:
                 self._free_hint()
 
@@ -568,15 +591,15 @@ class MainWindow(QMainWindow):
         if str(self.settings.value("free_hint_off", "0")) in ("1", "true"):
             return
         box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Information); box.setWindowTitle("Free selection")
-        box.setText("<b>Free selection draws a rectangle.</b>")
+        box.setIcon(QMessageBox.Icon.Information); box.setWindowTitle("Rectangle selection")
+        box.setText("<b>Rectangle selection draws a box.</b>")
         box.setInformativeText(
             "• The effect treats the rectangle as its own small picture: its rows are joined together. Settings measured in "
             "samples (chunk sizes, delays) therefore relate to the rectangle's width, not the whole image's, so the same settings "
             "can look quite different from a normal selection.<br>"
             "• Only pixels inside the rectangle change.<br>"
             "• The waveform shows a rectangle as many thin bands, and you can't edit it there.<br>"
-            "• Turn this off in the Edit menu to get the normal selection back.")
+            "• Switch back to Run with the Selection buttons in the toolbar. The ⓘ button next to them explains the difference in full.")
         cb = QCheckBox("Do not show again"); box.setCheckBox(cb)
         box.exec()
         if cb.isChecked():
