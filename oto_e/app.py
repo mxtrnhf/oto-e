@@ -7,7 +7,7 @@ import sys
 import numpy as np
 from pathlib import Path
 
-from PyQt6.QtCore import QLoggingCategory, QObject, QRunnable, QSettings, Qt, QThreadPool, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QLoggingCategory, QObject, QRunnable, QSettings, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QBrush, QImage, QKeySequence, QPalette, QShortcut
 from PyQt6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
                              QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
@@ -270,6 +270,8 @@ class MainWindow(QMainWindow):
         self.wave.selectionChanged.connect(self._on_selection)
         self.image_view.rangeSelected.connect(self._on_image_selection)
         self.image_view.rectSelected.connect(lambda r: self._set_selection(r))
+        self._comparing = False
+        QApplication.instance().installEventFilter(self)  # the C key must work without hovering or clicking the image first
         img_panel = QWidget(); il = QVBoxLayout(img_panel); il.setContentsMargins(0, 0, 0, 0); il.setSpacing(0)
         il.addWidget(self._build_view_strip()); il.addWidget(self.image_view, 1)
         left = QSplitter(Qt.Orientation.Vertical)
@@ -397,7 +399,7 @@ class MainWindow(QMainWindow):
         for act in (self.a_save, self.a_undo, self.a_redo):
             tb.addAction(act)
         cmp_btn = QToolButton(); cmp_btn.setText("Compare")
-        cmp_btn.setToolTip("Hold to see the original image. Let go to get your edit back.")
+        cmp_btn.setToolTip("Hold to see the original image (or hold C). Let go to get your edit back.")
         cmp_btn.pressed.connect(lambda: self.compare(True)); cmp_btn.released.connect(lambda: self.compare(False))
         tb.addWidget(cmp_btn)
         tb.addSeparator()
@@ -515,15 +517,26 @@ class MainWindow(QMainWindow):
             self.info.setText(f"{d.size[0]}×{d.size[1]}  ·  {stream.size:,} samples  ·  {stream.size / SR:.2f} s @ {SR} Hz" if d.loaded else "")
         self._update_sel_label()
 
-    def compare(self, show_original: bool):
-        """Hold-to-compare: show the original picture while held, then whatever was on screen before."""
+    def compare(self, on: bool):
+        """Hold-to-compare: show the original picture while held, then your edit again."""
         d = self.doc
-        if not d.loaded:
+        if not d.loaded or on == self._comparing:
             return
-        if show_original:
-            self.image_view.set_pixels(d.original, d.size)
-        else:
-            self.image_view.set_pixels(self._pv_cache[1] if getattr(self, "_dlg", None) and self._pv_cache else d.live, d.size)
+        self._comparing = on
+        self.image_view.set_pixels(d.original if on else d.live, d.size)
+
+    def eventFilter(self, obj, e):
+        """Hold C to see the original. It works anywhere in the main window, but not in the search box, and not while an effect
+        window is open: there the Live preview box already switches the effect on and off."""
+        t = e.type()
+        if t in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease) and e.key() == Qt.Key.Key_C and not e.modifiers():
+            if QApplication.activeWindow() is self and getattr(self, "_dlg", None) is None and not isinstance(QApplication.focusWidget(), QLineEdit):
+                if not e.isAutoRepeat():
+                    self.compare(t == QEvent.Type.KeyPress)
+                return True
+        elif t == QEvent.Type.WindowDeactivate and self._comparing:
+            self.compare(False)  # losing the focus while C is held would leave the original on screen
+        return super().eventFilter(obj, e)
 
     def _sync_outlines(self):
         self.image_view.set_ranges(self.doc.selection_pixel_ranges(self.sel))
