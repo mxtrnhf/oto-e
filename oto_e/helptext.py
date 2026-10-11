@@ -306,6 +306,7 @@ GLOSSARY = (
     "<p style='margin-top:14px'><b>Units.</b> The picture is read as one long list of numbers: 3 per pixel (red, green, blue), row after row. "
     "<b>smp</b> = samples in that list, so one row of a 1000 px wide image is 3,000 samples. The list is treated as audio at 44,100 samples per "
     "second, so <b>0.1 s</b> = 4,410 samples and <b>Hz</b> is detail size (high = fine detail and colour, low = broad areas). "
+    "That is the default reading (unsigned 8-bit); the other sample formats in the Data menu change what one sample is, and 16-bit formats make the list half as long. "
     "A <b>seed</b> picks a random pattern; the same seed always gives the same result.</p>")
 
 

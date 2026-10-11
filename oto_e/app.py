@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialo
 
 from . import effects
 from .helptext import help_html, reference_html
-from .core import INTERLEAVED, MODE_NAMES, Document, Rect, norm_sel, run_as_rect, run_rows
+from .core import BYTES_PER_SAMPLE, FORMAT_NAMES, INTERLEAVED, MODE_NAMES, Document, Rect, norm_sel, run_as_rect, run_rows
 from .effects import SR, Effect, Param
 from .history import HistoryPanel
 from .views import ImageView, WaveformView
@@ -199,14 +199,14 @@ class _PreviewSignals(QObject):
 class _PreviewTask(QRunnable):
     """Computes one effect preview off the UI thread, on a private copy of the image."""
 
-    def __init__(self, doc, eff, params, sel, base, mode, key, signals, keep_from=None, keep_rows=0):
+    def __init__(self, doc, eff, params, sel, base, mode, fmt, key, signals, keep_from=None, keep_rows=0):
         super().__init__()
-        self.args = (doc, eff, params, sel, base, mode, keep_from, keep_rows); self.key, self.signals = key, signals
+        self.args = (doc, eff, params, sel, base, mode, fmt, keep_from, keep_rows); self.key, self.signals = key, signals
 
     def run(self):
-        doc, eff, params, sel, base, mode, keep_from, keep_rows = self.args
+        doc, eff, params, sel, base, mode, fmt, keep_from, keep_rows = self.args
         try:
-            px = doc.compute(eff, params, sel, base=base, mode=mode, keep_from=keep_from, keep_rows=keep_rows)
+            px = doc.compute(eff, params, sel, base=base, mode=mode, fmt=fmt, keep_from=keep_from, keep_rows=keep_rows)
         except Exception:  # noqa: BLE001
             px = None
         self.signals.done.emit(self.key, px)
@@ -348,6 +348,13 @@ class MainWindow(QMainWindow):
         for i, name in enumerate(MODE_NAMES):
             a = self._act(m, name, lambda _, i=i: self.set_data_mode(i), checkable=True)
             g.addAction(a); a.setChecked(i == 0)
+        m.addSeparator()
+        self.fmt_actions = []
+        g = QActionGroup(self)
+        for i, name in enumerate(FORMAT_NAMES):
+            a = self._act(m, name, lambda _, i=i: self.set_sample_format(i), checkable=True)
+            g.addAction(a); a.setChecked(i == 0); self.fmt_actions.append(a)
+            a.setStatusTip("How the picture's bytes are read as audio samples (like the encoding in Audacity's raw import)")
 
         tb = self.toolbar = self.addToolBar("Main"); tb.setMovable(False)
         for act in (self.a_save, self.a_undo, self.a_redo):
@@ -359,6 +366,11 @@ class MainWindow(QMainWindow):
         tb.addWidget(QLabel("  Data: "))
         self.mode_cb = QComboBox(); self.mode_cb.addItems(MODE_NAMES)
         self.mode_cb.currentIndexChanged.connect(self.set_data_mode); tb.addWidget(self.mode_cb)
+        tb.addWidget(QLabel("  Samples: "))
+        self.fmt_cb = QComboBox(); self.fmt_cb.addItems(FORMAT_NAMES)
+        self.fmt_cb.setToolTip("How the picture's bytes are read as audio samples, like the encoding in Audacity's raw import.\n"
+                               "Unsigned 8-bit is the classic one-byte-per-sample reading; 16-bit formats pair bytes up.")
+        self.fmt_cb.currentIndexChanged.connect(self.set_sample_format); tb.addWidget(self.fmt_cb)
 
     def _build_view_strip(self) -> QWidget:
         strip = QWidget(); lay = QHBoxLayout(strip); lay.setContentsMargins(4, 2, 4, 2)
@@ -435,7 +447,8 @@ class MainWindow(QMainWindow):
         d = self.doc
         px = d.pixels if pixels is None else pixels
         self.image_view.set_pixels(px, d.size)
-        self.wave.set_stream(d.stream(px), reset_view=reset)
+        stream = d.stream(px)
+        self.wave.set_stream(stream, reset_view=reset)
         if pixels is None:
             self.history.set_history(d.entries())
         self._sync_outlines()
@@ -445,7 +458,7 @@ class MainWindow(QMainWindow):
             self.a_save.setEnabled(d.loaded)
             name = (d.path.name if d.path else d.source_name) or "untitled"
             self.setWindowTitle(f"{name}{'*' if d.dirty else ''} — Oto-e")
-            self.info.setText(f"{d.size[0]}×{d.size[1]}  ·  {px.size:,} samples  ·  {px.size / SR:.2f} s @ {SR} Hz" if d.loaded else "")
+            self.info.setText(f"{d.size[0]}×{d.size[1]}  ·  {stream.size:,} samples  ·  {stream.size / SR:.2f} s @ {SR} Hz" if d.loaded else "")
         self._update_sel_label()
 
     def _sync_outlines(self):
@@ -468,9 +481,9 @@ class MainWindow(QMainWindow):
             self._set_selection(None); return
         a, b = r
         if self.doc.mode == INTERLEAVED:
-            self._set_selection((a * 3, b * 3))
+            self._set_selection(self.doc.sel_from_bytes(a * 3, b * 3))
         else:  # planar data keeps R, G, B in separate runs, so one pixel run maps to the red plane only
-            self._set_selection((a, b))
+            self._set_selection(self.doc.sel_from_bytes(a, b))
             self.statusBar().showMessage("Planar mode: image selection covers the red plane only", 4000)
 
     def _on_selection(self, sel):
@@ -556,7 +569,7 @@ class MainWindow(QMainWindow):
     def select_all(self):
         if self.doc.loaded:
             W, H = self.doc.size
-            self._set_selection(Rect(0, 0, W, H) if self.free_mode else (0, self.doc.pixels.size))
+            self._set_selection(Rect(0, 0, W, H) if self.free_mode else (0, self.doc.nsamples))
 
     # --------------------------------------------------------------- files
     def _confirm_discard(self) -> bool:
@@ -653,6 +666,15 @@ class MainWindow(QMainWindow):
         self._set_selection(None)
         self._refresh(reset=True)
 
+    def set_sample_format(self, i):
+        """Read the same bytes as another kind of audio sample. Positions in the stream change meaning, so the selection is cleared."""
+        self.doc.fmt = i
+        self.fmt_cb.blockSignals(True); self.fmt_cb.setCurrentIndex(i); self.fmt_cb.blockSignals(False)
+        self.fmt_actions[i].setChecked(True)
+        self._set_selection(None)
+        self._refresh(reset=True)
+        self.statusBar().showMessage(f"Samples: {FORMAT_NAMES[i]}", 4000)
+
     def _tree_activate(self, item):
         if not item or not item.data(0, Qt.ItemDataRole.UserRole):
             return
@@ -713,18 +735,22 @@ class MainWindow(QMainWindow):
             return
         if not eff.params:
             return
-        back = (d.node.id, self.sel, d.mode)
+        back = (d.node.id, self.sel, d.mode, d.fmt)
 
         def restore():  # cancelled: put everything back exactly as it was
             d.goto(back[0])
             if d.mode != back[2]:
                 self.set_data_mode(back[2])
+            if d.fmt != back[3]:
+                self.set_sample_format(back[3])
             self._set_selection(back[1])
             self._refresh()
 
         d.goto(node.parent.id)
         if info.get("mode", d.mode) != d.mode:
             self.set_data_mode(info["mode"])
+        if info.get("fmt", d.fmt) != d.fmt:
+            self.set_sample_format(info["fmt"])
         self._set_selection(info.get("sel"))
         self._refresh()
         self.statusBar().showMessage(f"Tweaking step {node_id} ({eff.name}); applies as a new branch", 6000)
@@ -735,13 +761,13 @@ class MainWindow(QMainWindow):
             self._refresh()
 
     def _pv_key(self, eff, params, crop=None):
-        return (eff.name, tuple(sorted(params.items())), norm_sel(self.sel), self.doc.node.id, self.doc.mode, crop)
+        return (eff.name, tuple(sorted(params.items())), norm_sel(self.sel), self.doc.node.id, self.doc.mode, self.doc.fmt, crop)
 
     def small_crop(self, pct):
         """Sample range to preview when only `pct` % is wanted: a whole-row stretch centred in the target
         (the selection, or the whole image), so every row keeps its real length. None = preview everything."""
         d = self.doc
-        n = d.pixels.size
+        n = d.nsamples
         sel = norm_sel(self.sel)
         if isinstance(sel, Rect):  # a stretch of the rectangle's rows, full width
             if pct is None or pct >= 100:
@@ -754,7 +780,7 @@ class MainWindow(QMainWindow):
         a, b = sel if sel else (0, n)
         if pct is None or pct >= 100 or b - a < 2:
             return None
-        row = 3 * d.size[0] if d.mode == INTERLEAVED else d.size[0]
+        row = max((3 * d.size[0] if d.mode == INTERLEAVED else d.size[0]) // BYTES_PER_SAMPLE[d.fmt], 1)  # samples in one row
         k = min(max(int((b - a) * pct / 100), row), b - a)  # at least one row, never more than the target
         s = a + (b - a - k) // 2
         e = s + k
@@ -794,14 +820,14 @@ class MainWindow(QMainWindow):
         sel = norm_sel(self.sel)
         keep, keep_rows = None, 0
         if isinstance(crop, Rect):  # run on a few extra rows above the preview rows, then keep the originals of those
-            rowlen = 3 * d.size[0] if d.mode == INTERLEAVED else d.size[0]
+            rowlen = max((3 * d.size[0] if d.mode == INTERLEAVED else d.size[0]) // BYTES_PER_SAMPLE[d.fmt], 1)
             y0 = max(sel.y0, crop.y0 - -(-self.LEAD_IN // rowlen))
             keep_rows = crop.y0 - y0
             sel = Rect(crop.x0, y0, crop.x1, crop.y1)
         elif crop:  # run on [crop start - lead-in, crop end], keep only [crop start, crop end]
             a = sel[0] if sel else 0
             keep = crop[0]; sel = (max(a, crop[0] - self.LEAD_IN), crop[1])
-        self._pv_pool.start(_PreviewTask(d, eff, vals, sel, d.live.copy(), d.mode, key, self._pv_signals, keep, keep_rows))
+        self._pv_pool.start(_PreviewTask(d, eff, vals, sel, d.live.copy(), d.mode, d.fmt, key, self._pv_signals, keep, keep_rows))
 
     def _on_preview_done(self, key, px):
         self._pv_busy = False
@@ -840,7 +866,7 @@ class MainWindow(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
         sel = norm_sel(self.sel)
-        self.doc.commit(px, {"name": eff.name, "params": params, "sel": sel, "mode": self.doc.mode, "random": random, **(extra or {})})
+        self.doc.commit(px, {"name": eff.name, "params": params, "sel": sel, "mode": self.doc.mode, "fmt": self.doc.fmt, "random": random, **(extra or {})})
         self.last_effect = (eff, params)
         self._refresh()
         self.statusBar().showMessage(f"Applied {eff.name}", 3000)
@@ -851,12 +877,12 @@ class MainWindow(QMainWindow):
         sel = norm_sel(self.sel)
         if eff.domain != "image" or sel is None or isinstance(sel, Rect):
             return False
-        return run_as_rect(sel, self.doc.mode, self.doc.size) is None
+        return run_as_rect(sel, self.doc.mode, self.doc.size, self.doc.fmt) is None
 
     def _offer_rect_mode(self, eff) -> bool:
         """Explain why a picture effect can't use the current selection and offer to fix it. True if it now can."""
         W, H = self.doc.size
-        y0, y1 = run_rows(norm_sel(self.sel), self.doc.mode, self.doc.size)
+        y0, y1 = run_rows(norm_sel(self.sel), self.doc.mode, self.doc.size, self.doc.fmt)
         box = QMessageBox(self); box.setIcon(QMessageBox.Icon.Question); box.setWindowTitle(eff.name)
         box.setText(f"<b>{eff.name}</b> works on the picture, so it needs a rectangle selection (or no selection).")
         box.setInformativeText(f"Your current selection follows the data in reading order, which isn't a rectangle. Switch to rectangle "

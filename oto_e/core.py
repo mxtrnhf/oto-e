@@ -14,6 +14,57 @@ MAX_HISTORY_BYTES = 1 << 30  # ... or until their stored deltas exceed this (old
 INTERLEAVED, PLANAR = 0, 1
 MODE_NAMES = ["Interleaved RGB (classic)", "Planar (R, then G, then B)"]
 
+# How the bytes are read as audio, like the encoding choice in Audacity's raw import. Every format keeps
+# the picture's bytes untouched until an effect changes them; they only decide what a "sample" is.
+U8, S8, S16LE, S16BE, ULAW = range(5)
+FORMAT_NAMES = ["Unsigned 8-bit (classic)", "Signed 8-bit", "16-bit little-endian", "16-bit big-endian", "µ-law (8-bit)"]
+BYTES_PER_SAMPLE = [1, 1, 2, 2, 1]
+
+
+def _ulaw_table() -> np.ndarray:
+    """G.711 µ-law decode: code -> linear value in [-1, 1). The two zero codes would collide when encoding back, so
+    the negative zero sits one step below zero; untouched samples then always come back as the same byte."""
+    u = ~np.arange(256) & 0xFF
+    mag = (((u & 0x0F) << 3) + 0x84 << ((u >> 4) & 7)) - 0x84
+    v = np.where(u & 0x80, -mag, mag).astype(np.float32)
+    v[0x7F] = -1.0
+    return v / 32768
+
+
+_ULAW = _ulaw_table()
+_ULAW_ORDER = np.argsort(_ULAW)  # codes sorted by value, for nearest-value encoding
+_ULAW_MIDS = (_ULAW[_ULAW_ORDER][1:] + _ULAW[_ULAW_ORDER][:-1]) / 2
+
+
+def decode(b: np.ndarray, fmt: int) -> np.ndarray:
+    """Bytes -> float32 samples in [-1, 1]. 16-bit formats pair the bytes up (a leftover odd byte is ignored)."""
+    if fmt == U8:
+        return (b.astype(np.float32) - 127.5) / 127.5
+    if fmt == S8:
+        return b.view(np.int8).astype(np.float32) / 128
+    if fmt == ULAW:
+        return _ULAW[b]
+    n = len(b) // 2 * 2
+    return np.frombuffer(np.ascontiguousarray(b[:n]).tobytes(), "<i2" if fmt == S16LE else ">i2").astype(np.float32) / 32768
+
+
+def encode(x: np.ndarray, fmt: int) -> np.ndarray:
+    """Float samples -> bytes: the inverse of decode (clipped to the format's range)."""
+    if fmt == U8:
+        return np.clip(np.rint(x * 127.5 + 127.5), 0, 255).astype(np.uint8)
+    if fmt == S8:
+        return np.clip(np.rint(x * 128), -128, 127).astype(np.int8).view(np.uint8)
+    if fmt == ULAW:
+        return _ULAW_ORDER[np.searchsorted(_ULAW_MIDS, x)].astype(np.uint8)
+    q = np.clip(np.rint(x * 32768), -32768, 32767).astype("<i2" if fmt == S16LE else ">i2")
+    return np.frombuffer(q.tobytes(), np.uint8)
+
+
+def sel_bytes(sel, fmt: int, size) -> tuple[int, int]:
+    """A run of samples as the byte range it covers (the last sample also takes an odd leftover byte)."""
+    bps = BYTES_PER_SAMPLE[fmt]; total = 3 * size[0] * size[1]; a, b = sel
+    return a * bps, total if b * bps > total - bps else b * bps
+
 
 class Rect(NamedTuple):
     """A rectangular selection in pixels, half-open: columns x0..x1-1, rows y0..y1-1."""
@@ -36,18 +87,18 @@ def norm_sel(sel):
     return sel if sel and sel[1] - sel[0] > 1 else None
 
 
-def run_as_rect(sel, mode: int, size) -> "Rect | None":
+def run_as_rect(sel, mode: int, size, fmt: int = U8) -> "Rect | None":
     """The rectangle a run of samples covers exactly, if it is one: whole rows (or the whole image) of full width."""
-    W, H = size; a, b = sel
+    W, H = size; a, b = sel_bytes(sel, fmt, size)
     if mode == INTERLEAVED:
         r = 3 * W
         return Rect(0, a // r, W, b // r) if b > a and a % r == 0 and b % r == 0 else None
     return Rect(0, 0, W, H) if a == 0 and b == 3 * W * H else None
 
 
-def run_rows(sel, mode: int, size) -> tuple[int, int]:
+def run_rows(sel, mode: int, size, fmt: int = U8) -> tuple[int, int]:
     """First row and one past the last row that a run of samples touches."""
-    W, H = size; a, b = sel
+    W, H = size; a, b = sel_bytes(sel, fmt, size)
     if mode == INTERLEAVED:
         p0, p1 = a // 3, -(-b // 3)
     else:
@@ -66,46 +117,39 @@ def _rect_view(px: np.ndarray, mode: int, size, r: Rect) -> np.ndarray:
     return px.reshape(H, W, 3)[r.y0:r.y1, r.x0:r.x1].transpose(2, 0, 1)
 
 
-def rect_read(px: np.ndarray, mode: int, size, r: Rect) -> np.ndarray:
-    """The samples a picture cropped to `r` would produce: the rectangle's rows joined in order."""
-    return (_rect_view(px, mode, size, r).astype(np.float32).ravel() - 127.5) / 127.5
-
-
-def rect_write(px: np.ndarray, mode: int, size, r: Rect, x: np.ndarray):
-    q = np.clip(np.rint(x * 127.5 + 127.5), 0, 255).astype(np.uint8)
-    v = _rect_view(px, mode, size, r)
-    v[...] = q.reshape(v.shape)
-
-
-def to_stream(pixels: np.ndarray, mode: int) -> np.ndarray:
+def to_stream(pixels: np.ndarray, mode: int, fmt: int = U8) -> np.ndarray:
     """Flat uint8 RGB bytes -> float32 samples in [-1, 1]."""
-    data = pixels.reshape(-1, 3).T.ravel() if mode == PLANAR else pixels
-    return (data.astype(np.float32) - 127.5) / 127.5
+    return decode(pixels.reshape(-1, 3).T.ravel() if mode == PLANAR else pixels, fmt)
 
 
-def from_stream(x: np.ndarray, mode: int) -> np.ndarray:
-    data = np.clip(np.rint(x * 127.5 + 127.5), 0, 255).astype(np.uint8)
-    return data.reshape(3, -1).T.ravel() if mode == PLANAR else data
-
-
-def read_range(px: np.ndarray, mode: int, a: int, b: int) -> np.ndarray:
-    """Samples [a, b) of the stream as float32, converting only that range."""
+def read_bytes(px: np.ndarray, mode: int, a: int, b: int) -> np.ndarray:
+    """Bytes [a, b) of the stream (planar mode: all of R, then G, then B)."""
     if mode == INTERLEAVED:
-        return (px[a:b].astype(np.float32) - 127.5) / 127.5
+        return px[a:b]
     rgb = px.reshape(-1, 3); P = len(rgb)
-    parts = [rgb[max(a, k * P) - k * P:min(b, (k + 1) * P) - k * P, k] for k in range(3) if max(a, k * P) < min(b, (k + 1) * P)]
-    return (np.concatenate(parts).astype(np.float32) - 127.5) / 127.5
+    return np.concatenate([rgb[max(a, k * P) - k * P:min(b, (k + 1) * P) - k * P, k] for k in range(3) if max(a, k * P) < min(b, (k + 1) * P)])
 
 
-def write_range(px: np.ndarray, mode: int, a: int, b: int, x: np.ndarray):
-    q = np.clip(np.rint(x * 127.5 + 127.5), 0, 255).astype(np.uint8)
+def write_bytes(px: np.ndarray, mode: int, a: int, q: np.ndarray):
+    """Write bytes `q` into the stream starting at byte `a`."""
     if mode == INTERLEAVED:
-        px[a:b] = q; return
-    rgb = px.reshape(-1, 3); P = len(rgb); pos = 0
+        px[a:a + len(q)] = q; return
+    rgb = px.reshape(-1, 3); P = len(rgb); b = a + len(q); pos = 0
     for k in range(3):
         lo, hi = max(a, k * P) - k * P, min(b, (k + 1) * P) - k * P
         if lo < hi:
             rgb[lo:hi, k] = q[pos:pos + hi - lo]; pos += hi - lo
+
+
+def read_range(px: np.ndarray, mode: int, fmt: int, a: int, b: int) -> np.ndarray:
+    """Samples [a, b) of the stream as float32, converting only that range."""
+    bb = sel_bytes((a, b), fmt, (len(px) // 3, 1))  # `size` only supplies the total byte count
+    return decode(read_bytes(px, mode, *bb), fmt)
+
+
+def write_range(px: np.ndarray, mode: int, fmt: int, a: int, x: np.ndarray):
+    """Write samples `x` into the stream starting at sample `a`."""
+    write_bytes(px, mode, a * BYTES_PER_SAMPLE[fmt], encode(x, fmt))
 
 
 class Step:
@@ -145,6 +189,7 @@ class Document:
         self.path: Path | None = None  # where Save writes to
         self.source_name = ""
         self.mode = INTERLEAVED
+        self.fmt = U8
         self.dirty = False
 
     def _reset_history(self):
@@ -190,11 +235,21 @@ class Document:
 
     # ---- editing
     def stream(self, pixels: np.ndarray | None = None) -> np.ndarray:
-        return to_stream(self.pixels if pixels is None else pixels, self.mode)
+        return to_stream(self.pixels if pixels is None else pixels, self.mode, self.fmt)
+
+    @property
+    def nsamples(self) -> int:
+        """Length of the stream: the number of samples the current format makes of the picture's bytes."""
+        return self.live.size // BYTES_PER_SAMPLE[self.fmt]
+
+    def sel_from_bytes(self, a: int, b: int) -> tuple[int, int]:
+        """A byte range as the run of samples that covers it."""
+        bps = BYTES_PER_SAMPLE[self.fmt]
+        return a // bps, min(-(-b // bps), self.nsamples)
 
     def compute(self, eff: Effect, params: dict, sel: tuple[int, int] | None,
                 base: np.ndarray | None = None, mode: int | None = None, keep_from: int | None = None,
-                keep_rows: int = 0) -> np.ndarray:
+                keep_rows: int = 0, fmt: int | None = None) -> np.ndarray:
         """Return new pixel data with `eff` applied to `sel` (or everything). Pure.
 
         `base` (which this call then owns and modifies) and `mode` let a background thread work on a
@@ -202,39 +257,40 @@ class Document:
         keeps the result from that sample onwards: the part before it is a lead-in that lets echoes, reverb and
         filters build up their tails, as they would have in a full run."""
         mode = self.mode if mode is None else mode
+        fmt = self.fmt if fmt is None else fmt
         out = self.live.copy() if base is None else base
         if eff.domain == "image":
-            return self._compute_image(eff, params, norm_sel(sel), out, mode)
+            return self._compute_image(eff, params, norm_sel(sel), out, mode, fmt)
         if isinstance(sel, Rect):
             # the effect sees the rectangle as its own small picture. `keep_rows` leading rows are a lead-in:
             # they are processed (so tails build up) but their original pixels are kept.
-            seg = rect_read(out, mode, self.size, sel)
+            view = _rect_view(out, mode, self.size, sel)
+            orig = view.copy()
+            seg = decode(orig.ravel(), fmt)
             res = np.nan_to_num(np.asarray(eff.fn(seg, SR, **params), dtype=np.float32), nan=0.0, posinf=1.0, neginf=-1.0)
             res = np.pad(res, (0, max(len(seg) - len(res), 0)))[:len(seg)]
+            q = orig.ravel().copy(); q[:len(res) * BYTES_PER_SAMPLE[fmt]] = encode(res, fmt)  # an odd leftover byte stays as it was
+            q = q.reshape(view.shape)
             if keep_rows:
-                planes = 3 if mode == PLANAR else 1
-                shape = (planes, sel.h, len(seg) // (planes * sel.h))  # (plane, row, samples in a row)
-                res = res.reshape(shape).copy()
-                res[:, :keep_rows] = seg.reshape(shape)[:, :keep_rows]
-                res = res.ravel()
-            rect_write(out, mode, self.size, sel, res)
+                q[..., :keep_rows, :] = orig[..., :keep_rows, :]
+            view[...] = q
             return out
-        a, b = sel if sel and sel[1] - sel[0] > 1 else (0, out.size)
-        seg = read_range(out, mode, a, b)
+        a, b = sel if sel and sel[1] - sel[0] > 1 else (0, self.nsamples)
+        seg = read_range(out, mode, fmt, a, b)
         res = np.asarray(eff.fn(seg, SR, **params), dtype=np.float32)
         res = np.nan_to_num(res, nan=0.0, posinf=1.0, neginf=-1.0)  # a misbehaving effect must never corrupt the image
         if len(res) < len(seg):
             res = np.pad(res, (0, len(seg) - len(res)))
         lo = 0 if keep_from is None else min(max(keep_from - a, 0), len(seg))
         if lo < len(seg):
-            write_range(out, mode, a + lo, b, res[lo:len(seg)])
+            write_range(out, mode, fmt, a + lo, res[lo:len(seg)])
         return out
 
-    def _compute_image(self, eff: Effect, params: dict, sel, out: np.ndarray, mode: int) -> np.ndarray:
+    def _compute_image(self, eff: Effect, params: dict, sel, out: np.ndarray, mode: int, fmt: int = U8) -> np.ndarray:
         """Apply a picture-domain effect to the whole image or a rectangle; `out` is modified and returned.
         A run selection (reading order) has no picture shape, so it is refused unless it covers whole rows."""
         if sel is not None and not isinstance(sel, Rect):
-            sel = run_as_rect(sel, mode, self.size)
+            sel = run_as_rect(sel, mode, self.size, fmt)
             if sel is None:
                 raise ValueError("Image effects need a rectangle selection (or no selection). Switch to rectangle selection.")
         W, H = self.size
@@ -347,15 +403,18 @@ class Document:
         W, H = self.size
         y = np.arange(sel.y0, sel.y1, dtype=np.int64)
         if self.mode == INTERLEAVED:
-            return (y * W + sel.x0) * 3, (y * W + sel.x1) * 3
-        base = (np.arange(3, dtype=np.int64)[:, None] * (W * H) + y[None, :] * W).ravel()
-        return base + sel.x0, base + sel.x1
+            a, b = (y * W + sel.x0) * 3, (y * W + sel.x1) * 3
+        else:
+            base = (np.arange(3, dtype=np.int64)[:, None] * (W * H) + y[None, :] * W).ravel()
+            a, b = base + sel.x0, base + sel.x1
+        bps = BYTES_PER_SAMPLE[self.fmt]  # bytes -> samples
+        return a // bps, -(-b // bps)
 
     def selection_pixel_ranges(self, sel):
         """Map a sample range to [(pixel_start, pixel_end)) ranges for highlighting."""
         if not sel or not self.loaded or isinstance(sel, Rect):
             return []
-        a, b = sel
+        a, b = sel_bytes(sel, self.fmt, self.size)
         if self.mode == INTERLEAVED:
             return [(a // 3, -(-b // 3))]
         n = self.size[0] * self.size[1]

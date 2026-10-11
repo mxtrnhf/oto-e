@@ -34,7 +34,10 @@ On some Linux distros you may need `python3-venv` and the Qt xcb libraries (`lib
 - **🎲 Randomize** (Ctrl+Shift+R) applies a random effect with random settings to the selection. Undo (Ctrl+Z) if you don't like it.
 - **Ctrl+C** copies the selection (or the whole image) to the clipboard as a picture, ready to paste into other apps. Unselected ends of the first and last row are transparent.
 - Ctrl+R repeats the last effect. On the waveform: wheel zooms, Shift+wheel / middle-drag pans, double-click fits.
-- **Data** menu: interleaved RGB (classic) or planar (R, then G, then B) interpretation.
+- **Data** menu (also in the toolbar): how the picture's bytes become audio, like the import settings in Audacity's raw import.
+  *Layout*: interleaved RGB (classic) or planar (R, then G, then B). *Samples*: unsigned 8-bit (classic, one byte per sample),
+  signed 8-bit, 16-bit little- or big-endian (pairs of bytes), or µ-law. The same effect looks completely different under each.
+  Changing either clears the selection, because positions in the stream mean something else.
 - Save never overwrites your original unless you choose it: first Save asks for a path, and *Save As* picks a new one. *Export a copy* (Ctrl+E) writes a copy without changing which file you are working on, handy for dumping variants. Formats: PNG, JPEG, WebP (lossless), BMP, TIFF, JPEG 2000, TGA.
 
 ## Image effects
