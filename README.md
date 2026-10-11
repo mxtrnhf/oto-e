@@ -1,17 +1,17 @@
-# Databender
+# Oto-e (音絵)
 [Disclaimer: this project is entirely vibecoded and lightly tested. As I continue working on it I try to get better understanding of the code underneath]
 
 Databending for images, Audacity-style. The image's pixel data is treated as an audio
 stream: pick a range on the waveform, apply an effect (echo, phaser, bitcrusher, …) and
 watch the image change live.
 
-![Databender main window](screenshot_1.png)
+![Oto-e main window](screenshot_1.png)
 ## Run
 
 Requires **Python 3.10+** (with `venv`/`pip`) and a desktop session.
 
 ```bash
-git clone <repo-url> databender && cd databender
+git clone git@github.com:mxtrnhf/oto-e.git && cd oto-e
 ./run.sh                 # first run creates .venv and installs dependencies
 ./run.sh photo.jpg       # or open an image directly
 ```
@@ -21,7 +21,7 @@ Manual alternative (Windows/macOS or if you prefer):
 ```bash
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt     # Windows: .venv\Scripts\pip
-.venv/bin/python -m databender                 # Windows: .venv\Scripts\python
+.venv/bin/python -m oto_e                 # Windows: .venv\Scripts\python
 ```
 
 On some Linux distros you may need `python3-venv` and the Qt xcb libraries (`libxcb-cursor0` on Debian/Ubuntu).
@@ -51,3 +51,7 @@ On some Linux distros you may need `python3-venv` and the Qt xcb libraries (`lib
 Good to know: colour is stored at ~14.7 kHz in the "audio", so lost treble = lost colour. By default timing errors (wow, flutter, speed)
 snap to whole pixels so they shear the picture without rotating the hue; switch *Timing errors* to "Rotate hue freely" for rainbow chaos.
 Several generations on large images can take a few seconds per preview; untick *Live preview* if it feels slow.
+
+## License
+
+GPL-3.0. See [LICENSE](LICENSE). (PyQt6, which Oto-e is built on, is also GPL-3.0.)

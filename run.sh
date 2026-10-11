@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Databender launcher: creates a local virtualenv and installs dependencies on first run.
+# Oto-e launcher: creates a local virtualenv and installs dependencies on first run.
 set -e
 cd "$(dirname "$0")"
 if [ ! -x .venv/bin/python ]; then
@@ -9,4 +9,4 @@ if [ ! -x .venv/bin/python ]; then
   .venv/bin/pip install --quiet --upgrade pip
   .venv/bin/pip install --quiet -r requirements.txt
 fi
-exec .venv/bin/python -m databender "$@"
+exec .venv/bin/python -m oto_e "$@"

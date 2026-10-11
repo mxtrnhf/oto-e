@@ -1,4 +1,4 @@
-"""Main window for Databender."""
+"""Main window for Oto-e."""
 from __future__ import annotations
 
 import sys
@@ -106,7 +106,7 @@ class EffectDialog(QDialog):
         self.live = QCheckBox("Live preview"); self.live.setChecked(True)
         self.live.toggled.connect(self._changed)
         self.busy = QLabel(""); self.busy.setStyleSheet("color: gray")
-        st = QSettings("databender", "databender")
+        st = QSettings("oto-e", "oto-e")
         self.small = QCheckBox("Small-scale preview of"); self.small.setChecked(str(st.value("small_preview", "0")) in ("1", "true"))
         self.small.setToolTip("Live preview computes only a stretch of full-resolution rows, centred in the selection (or the whole image).\n"
                               "The rest stays untouched while you tweak. OK still applies the effect to everything.")
@@ -159,7 +159,7 @@ class EffectDialog(QDialog):
         self.timer.start()  # not _changed(): that would flip the preset box back to "(custom)"
 
     def _save_small(self):
-        st = QSettings("databender", "databender")
+        st = QSettings("oto-e", "oto-e")
         st.setValue("small_preview", int(self.small.isChecked())); st.setValue("small_pct", self.small_pct.value())
 
     def small_percent(self) -> int | None:
@@ -215,7 +215,7 @@ class MainWindow(QMainWindow):
         self.free_mode = False
         self.last_effect: tuple[Effect, dict] | None = None
         self.last_params: dict[str, dict] = {}
-        self.settings = QSettings("databender", "databender")
+        self.settings = QSettings("oto-e", "oto-e")
         self.resize(1440, 840)
         self.setAcceptDrops(True)
 
@@ -423,7 +423,7 @@ class MainWindow(QMainWindow):
             self.a_revert.setEnabled(d.loaded)
             self.a_save.setEnabled(d.loaded)
             name = (d.path.name if d.path else d.source_name) or "untitled"
-            self.setWindowTitle(f"{name}{'*' if d.dirty else ''} — Databender")
+            self.setWindowTitle(f"{name}{'*' if d.dirty else ''} — Oto-e")
             self.info.setText(f"{d.size[0]}×{d.size[1]}  ·  {px.size:,} samples  ·  {px.size / SR:.2f} s @ {SR} Hz" if d.loaded else "")
         self._update_sel_label()
 
@@ -844,6 +844,6 @@ def main():
     # KDE's file dialog logs a harmless warning whenever files in the folder it is showing get rewritten
     QLoggingCategory.setFilterRules("kf.kio.widgets.kdirmodel.warning=false")
     app = QApplication(sys.argv)
-    app.setApplicationName("Databender")
+    app.setApplicationName("Oto-e")
     w = MainWindow(); w.show()
     sys.exit(app.exec())
