@@ -38,7 +38,6 @@ class ImageView(QWidget):
     viewChanged = pyqtSignal(float)  # current scale in percent (100 = one image pixel per screen pixel)
     rangeSelected = pyqtSignal(object)  # (first_pixel, end_pixel) in raster order, or None to clear
     rectSelected = pyqtSignal(object)  # Rect in pixels (free selection mode), or None to clear
-    compareHeld = pyqtSignal(bool)  # the compare key (C) went down / up
 
     def __init__(self):
         super().__init__()
@@ -49,7 +48,6 @@ class ImageView(QWidget):
         self.rects: list[Rect] = []  # rectangular selection outline(s)
         self.preview_rects: list[Rect] = []
         self.free_mode = False  # True: dragging draws a rectangle instead of selecting a run of rows
-        self._comparing = False
         self.zoom = 1.0  # multiple of fit scale
         self.pan = QPointF(0, 0)
         self._drag = None
@@ -76,10 +74,6 @@ class ImageView(QWidget):
             if not e.isAutoRepeat():
                 self._space = True; self._update_cursor()
             e.accept()
-        elif e.key() == Qt.Key.Key_C and not e.modifiers():  # hold to compare with the original
-            if not e.isAutoRepeat() and not self._comparing:
-                self._comparing = True; self.compareHeld.emit(True)
-            e.accept()
         else:
             super().keyPressEvent(e)
 
@@ -88,18 +82,11 @@ class ImageView(QWidget):
             if not e.isAutoRepeat():
                 self._space = False; self._update_cursor()
             e.accept()
-        elif e.key() == Qt.Key.Key_C and not e.isAutoRepeat():
-            self._end_compare(); e.accept()
         else:
             super().keyReleaseEvent(e)
 
-    def _end_compare(self):
-        if self._comparing:
-            self._comparing = False; self.compareHeld.emit(False)
-
     def focusOutEvent(self, e):
         self._space = False; self._update_cursor()
-        self._end_compare()  # losing focus while C is held would otherwise leave the original on screen
         super().focusOutEvent(e)
 
     def _xy_at(self, pos: QPointF) -> tuple[int, int]:

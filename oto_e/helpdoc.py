@@ -77,8 +77,9 @@ def controls_sections(c: Colors) -> list[Section]:
                         (k("Ctrl+C") + " / " + k("Ctrl+Shift+C"), "Copy the selection / the whole image as a picture"),
                     ]) + "<p>In <i>Planar</i> data layout a selection on the image covers the red plane only.</p>"),
             Section("compare", "Comparing with the original",
-                    "<p><b>Hold the Compare button</b> in the toolbar, or <b>hold C</b> with the pointer over the image, to see the original. Let go and your "
-                    "edit comes back. It changes only the picture; the waveform keeps showing your edit.</p>"),
+                    "<p><b>Hold the Compare button</b> in the toolbar to see the original. Let go and your edit comes back. "
+                    "It changes only the picture; the waveform keeps showing your edit.</p>"
+                    "<p>To compare an effect you are still tuning, tick and untick <b>Live preview</b> in its window instead.</p>"),
             Section("opening", "Opening files",
                     "<p>Press <b>Ctrl+O</b> or drop an image file on the window. Your original file is never overwritten: the first Save always asks where "
                     "to write.</p>"),
@@ -195,7 +196,7 @@ def controls_sections(c: Colors) -> list[Section]:
             (k("Ctrl+0"), "Fit image to window"), (k("Ctrl+1"), "Actual size (100 %)"), (k("Ctrl+Shift+M"), "Center the image"),
             (k("Ctrl+="), "Zoom in"), (k("Ctrl+-"), "Zoom out"), (k("Ctrl+Shift+0"), "Fit the waveform"),
             "Held keys (pointer over the image)",
-            (k("Space"), "Pan while dragging"), (k("C"), "Show the original while held"),
+            (k("Space"), "Pan while dragging"),
             "Other",
             (k("Enter"), "Open the highlighted effect"), (k("F1"), "This window"),
         ], c, None, ("30%", "70%"))),

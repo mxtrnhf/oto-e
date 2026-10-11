@@ -29,7 +29,7 @@ On some Linux distros you may need `python3-venv` and the Qt xcb libraries (`lib
 ## Use
 
 - **Open** an image (Ctrl+O or drag it in). **Drag on the image** or **on the waveform** to select a range (on the image, a selection runs in reading order, left-to-right then top-to-bottom, like the data itself). Click to clear. The outline shows what's selected. No selection = whole image.
-- **Compare** (hold the toolbar button, or hold **C** with the pointer over the image) shows the original while held.
+- **Compare** (hold the toolbar button) shows the original while held. To compare an effect you are tuning, untick **Live preview** in its window.
 - **Help → Controls** (F1) is a searchable guide with a section tree: every mouse and keyboard control, selection modes, data and sample formats, saving. **Help → Effect reference** lists every effect and setting.
 - **Selection: Run / Rectangle** (toolbar, always visible; ⓘ explains it) decides what dragging on the image creates. *Run* follows the data in
   reading order, like the waveform. *Rectangle* draws a box that is treated as its own small picture, so audio effects behave differently

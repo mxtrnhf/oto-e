@@ -268,7 +268,6 @@ class MainWindow(QMainWindow):
         self.image_view = ImageView()
         self.wave = WaveformView()
         self.wave.selectionChanged.connect(self._on_selection)
-        self.image_view.compareHeld.connect(self.compare)
         self.image_view.rangeSelected.connect(self._on_image_selection)
         self.image_view.rectSelected.connect(lambda r: self._set_selection(r))
         img_panel = QWidget(); il = QVBoxLayout(img_panel); il.setContentsMargins(0, 0, 0, 0); il.setSpacing(0)
@@ -398,7 +397,7 @@ class MainWindow(QMainWindow):
         for act in (self.a_save, self.a_undo, self.a_redo):
             tb.addAction(act)
         cmp_btn = QToolButton(); cmp_btn.setText("Compare")
-        cmp_btn.setToolTip("Hold to see the original image (or hold C with the pointer over the image)")
+        cmp_btn.setToolTip("Hold to see the original image. Let go to get your edit back.")
         cmp_btn.pressed.connect(lambda: self.compare(True)); cmp_btn.released.connect(lambda: self.compare(False))
         tb.addWidget(cmp_btn)
         tb.addSeparator()
