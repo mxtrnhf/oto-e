@@ -11,7 +11,7 @@ from PyQt6.QtCore import QLoggingCategory, QObject, QRunnable, QSettings, Qt, QT
 from PyQt6.QtGui import QAction, QActionGroup, QBrush, QImage, QKeySequence, QPalette, QShortcut
 from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
                              QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
-                             QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter, QTextBrowser, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+                             QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter, QTextBrowser, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                              QWidget)
 
 from . import effects, exportopts
@@ -266,6 +266,7 @@ class MainWindow(QMainWindow):
         self.image_view = ImageView()
         self.wave = WaveformView()
         self.wave.selectionChanged.connect(self._on_selection)
+        self.image_view.compareHeld.connect(self.compare)
         self.image_view.rangeSelected.connect(self._on_image_selection)
         self.image_view.rectSelected.connect(lambda r: self._set_selection(r))
         img_panel = QWidget(); il = QVBoxLayout(img_panel); il.setContentsMargins(0, 0, 0, 0); il.setSpacing(0)
@@ -393,6 +394,10 @@ class MainWindow(QMainWindow):
         tb = self.toolbar = self.addToolBar("Main"); tb.setMovable(False)
         for act in (self.a_save, self.a_undo, self.a_redo):
             tb.addAction(act)
+        cmp_btn = QToolButton(); cmp_btn.setText("Compare")
+        cmp_btn.setToolTip("Hold to see the original image (or hold C with the pointer over the image)")
+        cmp_btn.pressed.connect(lambda: self.compare(True)); cmp_btn.released.connect(lambda: self.compare(False))
+        tb.addWidget(cmp_btn)
         tb.addSeparator()
         tb.addWidget(QLabel(" View: "))
         cb = QComboBox(); cb.addItems(["Waveform", "Spectrogram", "Both"]); cb.setCurrentIndex(2)
@@ -494,6 +499,16 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(f"{name}{'*' if d.dirty else ''} — Oto-e")
             self.info.setText(f"{d.size[0]}×{d.size[1]}  ·  {stream.size:,} samples  ·  {stream.size / SR:.2f} s @ {SR} Hz" if d.loaded else "")
         self._update_sel_label()
+
+    def compare(self, show_original: bool):
+        """Hold-to-compare: show the original picture while held, then whatever was on screen before."""
+        d = self.doc
+        if not d.loaded:
+            return
+        if show_original:
+            self.image_view.set_pixels(d.original, d.size)
+        else:
+            self.image_view.set_pixels(self._pv_cache[1] if getattr(self, "_dlg", None) and self._pv_cache else d.live, d.size)
 
     def _sync_outlines(self):
         self.image_view.set_ranges(self.doc.selection_pixel_ranges(self.sel))

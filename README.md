@@ -29,6 +29,7 @@ On some Linux distros you may need `python3-venv` and the Qt xcb libraries (`lib
 ## Use
 
 - **Open** an image (Ctrl+O or drag it in). **Drag on the image** or **on the waveform** to select a range (on the image, a selection runs in reading order, left-to-right then top-to-bottom, like the data itself). Click to clear. The outline shows what's selected. No selection = whole image.
+- **Compare** (hold the toolbar button, or hold **C** with the pointer over the image) shows the original while held.
 - **Hold Space and drag** (or middle-drag) to pan the image; wheel zooms.
 - **Double-click** an effect on the right (or Apply…). Tweak sliders with live preview, OK to commit.
 - **🎲 Randomize** (Ctrl+Shift+R) applies a random effect with random settings to the selection. Undo (Ctrl+Z) if you don't like it.
