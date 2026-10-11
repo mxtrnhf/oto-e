@@ -52,7 +52,8 @@ def _sort_key(img: np.ndarray, kind: int) -> np.ndarray:
         [Param("axis", "Sort along", 0, 0, 1, 1, "", True, AXIS),
          Param("key", "Sort by", 0, 0, 5, 1, "", True, SORT_KEYS),
          Param("lo", "Only pixels from", 25, 0, 100, 1, " %", True), Param("hi", "... up to", 75, 0, 100, 1, " %", True),
-         Param("order", "Order", 0, 0, 1, 1, "", True, ["Ascending", "Descending"])], domain="image")
+         Param("order", "Order", 0, 0, 1, 1, "", True, ["Ascending", "Descending"])], domain="image",
+        crop=lambda p: "cols" if p["axis"] else "rows")  # each line is sorted on its own, so a band of lines gives exactly the full result
 def pixel_sort(img, axis, key, lo, hi, order):
     lo, hi = sorted((lo, hi))
 
@@ -187,7 +188,8 @@ def jpeg_crunch(img, quality, flips, seed):
          Param("stretch", "Uneven stretch", 50, 0, 100, 1, " %", True),
          Param("resample", "Resampling", 0, 0, 2, 1, "", True, ["Smooth (bilinear)", "Sharp (bicubic)", "Blocky (nearest)"]),
          Param("flips", "Corrupt bytes (last save)", 0, 0, 300, 1, "", True),
-         Param("seed", "Seed", 1, 0, 9999, 1, "", True)], domain="image")
+         Param("seed", "Seed", 1, 0, 9999, 1, "", True)], domain="image",
+        crop=lambda p: "box")  # JPEG damage is local, so a box shows the same kind of damage (though not the same pixels)
 def jpeg_cruncher(img, gens, quality, chroma, drift, resize, vary, stretch, resample, flips, seed):
     h, w = img.shape[:2]; rng = np.random.default_rng(int(seed)); d = int(drift)
     cur, ty, tx = img, 0, 0

@@ -133,8 +133,10 @@ def controls_sections(c: Colors) -> list[Section]:
             Section("fx-dialog", "The settings window",
                     "<p>Sliders preview live on the image. <b>OK</b> applies, <b>Cancel</b> changes nothing. Every setting has a tooltip, and "
                     "<b>ⓘ About this effect</b> explains it in full. Some effects have a <b>Preset</b> box.</p>"
-                    "<p><b>Small-scale preview</b> (audio effects) computes only a stretch of rows in the middle of the target, which is much faster on big "
-                    "images; OK still applies to everything. Picture effects always preview in full.</p>"),
+                    "<p><b>Small-scale preview</b> computes only a stretch of the picture in the middle of the target, which is much faster on big images; "
+                    "OK still applies to everything. Audio effects offer it, and so do the two slow picture effects: Pixel Sort (the preview is exactly what "
+                    "the full result will show there) and JPEG Cruncher (the same kind of damage, not the same pixels). The other picture effects are quick "
+                    "and always preview in full.</p>"),
             Section("fx-repeat", "Repeating and randomizing", two([
                 (k("Repeat last") + " (Ctrl+R)", "Apply the previous effect again with the same settings"),
                 (k("Randomize") + " (Ctrl+Shift+R)", "Apply a random effect with random settings. Undo it if you do not like it"),

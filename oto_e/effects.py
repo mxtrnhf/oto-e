@@ -43,15 +43,18 @@ class Effect:
     audio: str = ""  # what it is for in ordinary audio work (see helptext.py)
     randomizable: bool = True  # False: never picked by Randomize (too slow, or too heavy to surprise someone with)
     domain: str = "audio"  # "audio": fn(x, sr, **params) on the sample stream. "image": fn(img, **params) on an (h, w, 3) uint8 picture
+    crop: Callable[[dict], str | None] | None = None  # picture effects: how a small-scale preview may crop the target for these settings:
+    # "rows" (a band of rows) or "cols" (a band of columns), when the result there is identical to the full run's, or "box" (a centred box)
+    # when it only looks the same; None = always preview in full
 
 
 EFFECTS: list[Effect] = []
 
 
 def effect(name: str, category: str, params: list[Param] | None = None, presets: dict[str, dict] | None = None,
-           info: str = "", domain: str = "audio"):
+           info: str = "", domain: str = "audio", crop: Callable[[dict], str | None] | None = None):
     def deco(fn):
-        EFFECTS.append(Effect(name, category, fn, params or [], presets or {}, info, domain=domain))
+        EFFECTS.append(Effect(name, category, fn, params or [], presets or {}, info, domain=domain, crop=crop))
         return fn
     return deco
 

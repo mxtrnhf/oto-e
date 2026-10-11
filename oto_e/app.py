@@ -147,8 +147,11 @@ class EffectDialog(QDialog):
         self.busy = QLabel(""); self.busy.setStyleSheet("color: gray")
         st = QSettings("oto-e", "oto-e")
         self.small = QCheckBox("Small-scale preview of"); self.small.setChecked(str(st.value("small_preview", "0")) in ("1", "true"))
-        self.small.setToolTip(tip("Small-scale preview", "Computes the live preview for only a stretch of full-resolution rows, centred in the selection "
-                                  "(or the whole image). The rest stays untouched while you tweak.", hint="OK still applies the effect to everything."))
+        approx = eff.domain == "image" and eff.crop is not None and eff.crop({p.key: p.default for p in eff.params}) == "box"
+        self.small.setToolTip(tip("Small-scale preview", "Computes the live preview for only a stretch of the picture at full resolution, centred in the selection "
+                                  "(or the whole image). The rest stays untouched while you tweak.",
+                                  detail="The damage in the preview looks the same as in the final result, but is not pixel-identical." if approx else None,
+                                  hint="OK still applies the effect to everything."))
         self.small_pct = QSpinBox(); self.small_pct.setRange(1, 100); self.small_pct.setSuffix(" %"); self.small_pct.setValue(int(st.value("small_pct", 20)))
         self.small_pct.setEnabled(self.small.isChecked())
         self.small.toggled.connect(lambda on: (self.small_pct.setEnabled(on), self._save_small(), self._changed()))
@@ -181,7 +184,7 @@ class EffectDialog(QDialog):
         small_row = QHBoxLayout(); small_row.addWidget(self.small); small_row.addWidget(self.small_pct)
         small_row.addWidget(QLabel("of the selection / image")); small_row.addStretch(1)
         lay.addLayout(live_row)
-        if eff.domain == "audio":  # picture effects depend on the whole picture, so they always preview in full
+        if eff.domain == "audio" or eff.crop is not None:  # some picture effects depend on the whole picture, so they always preview in full
             lay.addLayout(small_row)
         lay.addWidget(bb)
         self.timer = QTimer(self, singleShot=True, interval=120)
@@ -206,8 +209,8 @@ class EffectDialog(QDialog):
 
     def small_percent(self) -> int | None:
         """Share of the target to preview, or None for a full preview."""
-        if self.eff.domain == "image":
-            return None
+        if self.eff.domain == "image" and self.eff.crop is None:
+            return None  # this picture effect depends on the whole picture
         return self.small_pct.value() if self.small.isChecked() and self.small_pct.value() < 100 else None
 
     def set_busy(self, busy: bool):
@@ -931,9 +934,36 @@ class MainWindow(QMainWindow):
     def _pv_key(self, eff, params, crop=None):
         return (eff.name, tuple(sorted(params.items())), norm_sel(self.sel), self.doc.node.id, self.doc.mode, self.doc.fmt, crop)
 
-    def small_crop(self, pct):
+    def _picture_crop(self, pct, eff, vals):
+        """The part of the target a picture effect may preview: a centred band of rows or columns, or a box with `pct` % of the
+        target's area, as the effect allows for these settings. None = preview everything."""
+        d = self.doc
+        sel = norm_sel(self.sel)
+        W, H = d.size
+        if isinstance(sel, Rect):
+            target = sel
+        elif sel is None:
+            target = Rect(0, 0, W, H)
+        elif (target := run_as_rect(sel, d.mode, d.size, d.fmt)) is None:
+            return None
+        mode = eff.crop(vals) if eff.crop else None
+        if mode is None or pct is None or pct >= 100:
+            return None
+        p = pct / 100
+        kw, kh = ((target.w, max(int(target.h * p), 1)) if mode == "rows" else
+                  (max(int(target.w * p), 1), target.h) if mode == "cols" else
+                  (max(int(target.w * p ** 0.5), 1), max(int(target.h * p ** 0.5), 1)))
+        if kw >= target.w and kh >= target.h:
+            return None
+        x0, y0 = target.x0 + (target.w - kw) // 2, target.y0 + (target.h - kh) // 2
+        return Rect(x0, y0, x0 + kw, y0 + kh)
+
+    def small_crop(self, pct, eff=None, vals=None):
         """Sample range to preview when only `pct` % is wanted: a whole-row stretch centred in the target
-        (the selection, or the whole image), so every row keeps its real length. None = preview everything."""
+        (the selection, or the whole image), so every row keeps its real length. None = preview everything.
+        For a picture effect it is a Rect instead (see _picture_crop)."""
+        if eff is not None and eff.domain == "image":
+            return self._picture_crop(pct, eff, vals)
         d = self.doc
         n = d.nsamples
         sel = norm_sel(self.sel)
@@ -965,7 +995,7 @@ class MainWindow(QMainWindow):
             self._clear_preview_outline()
             self._refresh(); return
         dlg = getattr(self, "_dlg", None)
-        crop = self.small_crop(dlg.small_percent()) if dlg else None
+        crop = self.small_crop(dlg.small_percent(), eff, vals) if dlg else None
         self._clear_preview_outline()
         if isinstance(crop, Rect):
             self.image_view.set_preview_rects([crop])
@@ -987,7 +1017,10 @@ class MainWindow(QMainWindow):
         d = self.doc
         sel = norm_sel(self.sel)
         keep, keep_rows = None, 0
-        if isinstance(crop, Rect):  # run on a few extra rows above the preview rows, then keep the originals of those
+        if eff.domain == "image":  # no lead-in: the effect simply runs on the crop (or on the whole target)
+            if isinstance(crop, Rect):
+                sel = crop
+        elif isinstance(crop, Rect):  # run on a few extra rows above the preview rows, then keep the originals of those
             rowlen = max((3 * d.size[0] if d.mode == INTERLEAVED else d.size[0]) // BYTES_PER_SAMPLE[d.fmt], 1)
             y0 = max(sel.y0, crop.y0 - -(-self.LEAD_IN // rowlen))
             keep_rows = crop.y0 - y0
