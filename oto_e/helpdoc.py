@@ -54,6 +54,9 @@ def controls_sections(c: Colors) -> list[Section]:
                     "second, so a row 1,000 pixels wide is 3,000 samples long. The red-green-blue pattern repeats every three samples, which puts colour "
                     "at about 14.7 kHz: anything that removes treble also removes colour.</p>"
                     "<p>The <b>Data</b> menu changes how the bytes are read (see <i>Data and samples</i>), which changes what every effect does.</p>"),
+            Section("textsize", "Text size",
+                    "<p>Everything in Oto-e, from the toolbar to this guide and the tooltips, follows one text size. Change it in <b>View → Text size</b> "
+                    "(85 % to 175 % of your system's font). The choice is remembered. At large sizes the toolbar moves onto two rows to make room.</p>"),
             Section("window", "The window", table([
                 (k("Top centre"), "The image. Select on it, zoom it, pan it."),
                 (k("Bottom"), "The same data drawn as a waveform and spectrogram. Select ranges on it too."),

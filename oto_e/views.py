@@ -308,8 +308,11 @@ class WaveformView(QWidget):
     def _s2x(self, s): return (s - self.view[0]) / (self.view[1] - self.view[0]) * self.width()
     def _x2s(self, x): return self.view[0] + x / max(self.width(), 1) * (self.view[1] - self.view[0])
 
+    def _ruler_h(self) -> int:
+        return self.fontMetrics().height() + 3  # the time ruler is as tall as its text
+
     def _regions(self):
-        top = 18
+        top = self._ruler_h()
         h = self.height() - top
         if self.mode == self.WAVE: return (top, h), None
         if self.mode == self.SPEC: return None, (top, h)
@@ -343,15 +346,15 @@ class WaveformView(QWidget):
             p.drawLine(int(a), 0, int(a), self.height()); p.drawLine(int(b), 0, int(b), self.height())
 
     def _paint_ruler(self, p):
-        p.setPen(QColor("#9aa0a6"))
+        p.setPen(QColor("#9aa0a6")); top = self._ruler_h()
         span = (self.view[1] - self.view[0]) / SR
         raw = span / max(self.width() / 90, 1)
         step = next((s for s in (0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60) if s >= raw), 120)
         t = np.ceil(self.view[0] / SR / step) * step
         while t * SR < self.view[1]:
             x = self._s2x(t * SR)
-            p.drawLine(int(x), 12, int(x), 18)
-            p.drawText(int(x) + 3, 11, f"{t:g}s")
+            p.drawLine(int(x), top - 5, int(x), top)
+            p.drawText(int(x) + 3, self.fontMetrics().ascent() + 1, f"{t:g}s")
             t += step
 
     def _paint_wave(self, p, y0, h):

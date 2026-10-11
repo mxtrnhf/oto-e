@@ -12,6 +12,7 @@ from PyQt6.QtGui import QFont, QPalette, QTextCursor
 from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QLineEdit, QSplitter, QTextBrowser, QTreeWidget, QTreeWidgetItem,
                              QVBoxLayout, QWidget)
 
+from . import uiscale
 from .helpdoc import Colors, Section
 
 
@@ -33,7 +34,7 @@ class HelpDialog(QDialog):
 
     def __init__(self, title: str, build, parent=None, start: str | None = None):
         super().__init__(parent)
-        self.setWindowTitle(title); self.resize(1040, 720)
+        self.setWindowTitle(title); self.resize(uiscale.px(1040), uiscale.px(720))
         self.sections: list[Section] = build(theme_colors(self.palette()))
         self.items: dict[str, QTreeWidgetItem] = {}
         self.text: dict[str, str] = {}
@@ -44,7 +45,7 @@ class HelpDialog(QDialog):
 
         self.search = QLineEdit(placeholderText="Search this guide", clearButtonEnabled=True)
         self.tree = QTreeWidget(); self.tree.setHeaderHidden(True); self.tree.setIndentation(14)
-        self.tree.setMinimumWidth(190)
+        self.tree.setMinimumWidth(uiscale.px(190))
         self.view = QTextBrowser(); self.view.setOpenExternalLinks(True)
         parts = []
         for sec in self.sections:

@@ -13,6 +13,7 @@ from PyQt6.QtCore import QEvent, QObject, QRect, Qt
 from PyQt6.QtGui import QFontMetrics
 from PyQt6.QtWidgets import QAbstractItemView, QToolTip, QWidget
 
+from . import uiscale
 from .helptext import _fmt_range
 
 TEXT_WIDTH = 340  # px a tooltip's text may take before it wraps
@@ -23,7 +24,8 @@ def _box(inner: str, measure: str) -> str:
     """Pad the content, and fix its width only when it is long enough to need wrapping (short tips stay snug)."""
     fm = QFontMetrics(QToolTip.font())
     longest = max((fm.horizontalAdvance(line) for line in measure.splitlines()), default=0)
-    width = f' width="{TEXT_WIDTH}"' if longest > TEXT_WIDTH else ""
+    limit = uiscale.px(TEXT_WIDTH)  # the text column grows with the text size
+    width = f' width="{limit}"' if longest > limit else ""
     return f'<table cellspacing="0" cellpadding="9"{width}><tr><td>{inner}</td></tr></table>'
 
 

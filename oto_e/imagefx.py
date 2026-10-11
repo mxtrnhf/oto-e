@@ -51,7 +51,7 @@ def _sort_key(img: np.ndarray, kind: int) -> np.ndarray:
 @effect("Pixel Sort", CAT,
         [Param("axis", "Sort along", 0, 0, 1, 1, "", True, AXIS),
          Param("key", "Sort by", 0, 0, 5, 1, "", True, SORT_KEYS),
-         Param("lo", "Only pixels from", 25, 0, 100, 1, " %"), Param("hi", "... up to", 75, 0, 100, 1, " %"),
+         Param("lo", "Only pixels from", 25, 0, 100, 1, " %", True), Param("hi", "... up to", 75, 0, 100, 1, " %", True),
          Param("order", "Order", 0, 0, 1, 1, "", True, ["Ascending", "Descending"])], domain="image")
 def pixel_sort(img, axis, key, lo, hi, order):
     lo, hi = sorted((lo, hi))

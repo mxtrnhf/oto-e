@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, Q
                              QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter, QTextBrowser, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                              QWidget)
 
-from . import effects, exportopts
+from . import effects, exportopts, uiscale
 from .helptext import help_html
 from .helpdoc import controls_sections, reference_sections
 from .helpview import HelpDialog
@@ -37,7 +37,7 @@ class InfoDialog(QDialog):
 
     def __init__(self, title: str, html: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(title); self.resize(600, 640)
+        self.setWindowTitle(title); self.resize(uiscale.px(600), uiscale.px(640))
         view = QTextBrowser(); view.setOpenExternalLinks(True); view.setHtml(html)
         lay = QVBoxLayout(self); lay.addWidget(view)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close); bb.rejected.connect(self.close); lay.addWidget(bb)
@@ -93,9 +93,9 @@ class ParamRow(QWidget):
             self.w.setSingleStep(p.step); self.w.setDecimals(effects.DECIMALS)
         else:
             self.w.setSingleStep(int(p.step))
-        self.w.setValue(value); self.w.setMinimumWidth(110)
+        self.w.setValue(value); self.w.setMinimumWidth(uiscale.px(110))
         self.s = QSlider(Qt.Orientation.Horizontal); self.s.setRange(0, 1000)
-        self.s.setMinimumWidth(160)
+        self.s.setMinimumWidth(uiscale.px(160))
         self._sync_slider()
         self.s.valueChanged.connect(self._from_slider)
         self.w.valueChanged.connect(lambda _: (self._sync_slider(), on_change()))
@@ -174,7 +174,7 @@ class EffectDialog(QDialog):
             body = QWidget(); body.setLayout(form)
             area = QScrollArea(); area.setWidget(body); area.setWidgetResizable(True); area.setFrameShape(QScrollArea.Shape.NoFrame)
             lay.addWidget(area, 1)
-            self.resize(660, 720)
+            self.resize(uiscale.px(660), uiscale.px(720))
         else:
             lay.addLayout(form)
         live_row = QHBoxLayout(); live_row.addWidget(self.live); live_row.addWidget(self.busy, 1)
@@ -272,6 +272,7 @@ class MainWindow(QMainWindow):
         self.image_view.rangeSelected.connect(self._on_image_selection)
         self.image_view.rectSelected.connect(lambda r: self._set_selection(r))
         self._comparing = False
+        self._two_rows = False  # toolbars on one row or two (see _layout_toolbars)
         QApplication.instance().installEventFilter(self)  # the C key must work without hovering or clicking the image first
         self._tooltips = TooltipStyler(self)  # every plain tooltip gets the shared padding and wrapping
         QApplication.instance().installEventFilter(self._tooltips)
@@ -306,11 +307,10 @@ class MainWindow(QMainWindow):
         reroll_btn = self.reroll_btn = QPushButton("↺ Revert and randomize"); reroll_btn.clicked.connect(self.reroll)
         reroll_btn.setToolTip(tip("Revert and randomize", "Undo the last randomize, then apply a new random effect.", hint="Shortcut: Ctrl+Shift+E"))
         rl.addWidget(rand_btn); rl.addWidget(reroll_btn)
-        right.setMinimumWidth(230); right.setMaximumWidth(360)
+        self.right_panel = right  # its width limits follow the text size (see _fit_sizes)
 
         main = QSplitter(Qt.Orientation.Horizontal)
         self.history = HistoryPanel()
-        self.history.setMinimumWidth(190); self.history.setMaximumWidth(380)
         self.history.view.setCurrentIndex(int(self.settings.value("history_view", 0)))
         self.history.viewChanged.connect(lambda i: self.settings.setValue("history_view", i))
         self.history.jump.connect(self.goto_state)
@@ -322,12 +322,54 @@ class MainWindow(QMainWindow):
         self.info = QLabel(); self.sel_info = QLabel()
         self.statusBar().addWidget(self.info, 1); self.statusBar().addPermanentWidget(self.sel_info)
         self._build_menus()
+        self._fit_sizes()
         for w in self.findChildren((QPushButton, QComboBox)):
             w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._refresh(reset=True)
 
         if len(sys.argv) > 1 and Path(sys.argv[1]).is_file():
             self.open_path(sys.argv[1])
+
+    # ------------------------------------------------------------ text size
+    def _fit_sizes(self):
+        """Sizes that cannot simply follow the font: derive them from it, so they stay right at every text size."""
+        for b in self.view_strip_buttons:
+            fm = b.fontMetrics()
+            b.setFixedWidth(max(uiscale.px(34 if len(b.text()) == 1 else 56), fm.horizontalAdvance(b.text()) + fm.height()))
+        self.zoom_label.setMinimumWidth(uiscale.px(60))
+        self.right_panel.setMinimumWidth(uiscale.px(230)); self.right_panel.setMaximumWidth(uiscale.px(360))
+        self.history.setMinimumWidth(uiscale.px(190)); self.history.setMaximumWidth(uiscale.px(380))
+        run = self.sel_btns.button(0); run.ensurePolished()
+        side = run.sizeHint().height(); self.info_btn.setFixedSize(side, side)  # square, as tall as the Run / Rectangle buttons
+        self._layout_toolbars()
+        QTimer.singleShot(0, self._layout_toolbars)  # measure again once the toolbars have been laid out at the new size
+
+    def _layout_toolbars(self):
+        """One toolbar row while both toolbars fit side by side; two rows once the text is big enough that they do not."""
+        need = self.toolbar.sizeHint().width() + self.toolbar2.sizeHint().width() + 30
+        two = need > self.width()
+        if two != self._two_rows:
+            self._two_rows = two
+            if two:
+                self.insertToolBarBreak(self.toolbar2)
+            else:
+                self.removeToolBarBreak(self.toolbar2)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if hasattr(self, "toolbar2"):
+            self._layout_toolbars()
+
+    def set_text_size(self, percent: int):
+        """View > Text size: scale the font of the whole program, and remember it for next time."""
+        uiscale.apply(percent)
+        self.settings.setValue("font_scale", percent)
+        for wdg in self.findChildren(QWidget):  # a widget with a stylesheet keeps its old font until the sheet is applied again
+            if wdg.styleSheet():
+                wdg.setStyleSheet(wdg.styleSheet())
+        self._fit_sizes()
+        self.wave.update(); self.image_view.update()
+        self.statusBar().showMessage(f"Text size: {percent} %", 3000)
 
     # ------------------------------------------------------------ UI build
     def _act(self, menu, text, slot, shortcut=None, checkable=False):
@@ -378,6 +420,11 @@ class MainWindow(QMainWindow):
         self._act(m, "Zoom Out", lambda: self.image_view.zoom_by(0.8), "Ctrl+-")
         m.addSeparator()
         self._act(m, "Zoom Waveform to Fit", lambda: self.wave._set_view(0, len(self.wave.x)), "Ctrl+Shift+0")
+        m.addSeparator()
+        sub = m.addMenu("Text &size"); g = QActionGroup(self); current = round(uiscale.scale * 100)
+        for pct, label in uiscale.PRESETS:
+            a = self._act(sub, label, lambda _, pct=pct: self.set_text_size(pct), checkable=True)
+            g.addAction(a); a.setChecked(pct == current)
 
         m = self.menuBar().addMenu("&Help")
         self._act(m, "&Controls", lambda: HelpDialog("Controls", controls_sections, self).show(), "F1")
@@ -410,6 +457,7 @@ class MainWindow(QMainWindow):
         cb = QComboBox(); cb.addItems(["Waveform", "Spectrogram", "Both"]); cb.setCurrentIndex(2)
         cb.setToolTip(tip("View", "What the panel under the image shows: the waveform, the spectrogram, or both."))
         cb.currentIndexChanged.connect(self.wave.set_mode); tb.addWidget(cb)
+        tb = self.toolbar2 = self.addToolBar("Reading"); tb.setMovable(False)  # shares a row with the first one while both fit
         tb.addWidget(QLabel("  Data: "))
         self.mode_cb = QComboBox(); self.mode_cb.addItems(MODE_NAMES)
         self.mode_cb.setToolTip(tip("Data layout", "Interleaved reads the bytes as R, G, B, R, G, B… pixel after pixel. Planar reads all the red bytes first, then all the green, "
@@ -430,7 +478,7 @@ class MainWindow(QMainWindow):
             b.setStyleSheet("QPushButton:checked { background-color: palette(highlight); color: palette(highlighted-text); font-weight: bold; }")
         self.sel_btns.idClicked.connect(lambda i: self.set_free_selection(bool(i)))
         ib = QPushButton("ⓘ"); ib.setAutoDefault(False)
-        side = self.sel_btns.button(0).sizeHint().height(); ib.setFixedSize(side, side)  # square, as tall as the Run / Rectangle buttons
+        self.info_btn = ib  # kept square and as tall as the Run / Rectangle buttons by _fit_sizes
         ib.setToolTip(tip("Selection modes", "How Run and Rectangle change what effects do.", hint="Opens the guide"))
         ib.clicked.connect(lambda: HelpDialog("Controls", controls_sections, self, start="selection").show()); tb.addWidget(ib)
 
@@ -441,9 +489,9 @@ class MainWindow(QMainWindow):
                                ("Fit", "Fit image to window (Ctrl+0)", iv.fit), ("Fill", "Fill window, cropping overflow", iv.fill),
                                ("100%", "Actual size (Ctrl+1)", iv.actual_size), ("Center", "Center image (Ctrl+Shift+M)", iv.center)]:
             b = QPushButton(text); b.setToolTip(shortcut_tip(desc)); b.setAutoDefault(False)
-            b.setFixedWidth(34 if len(text) == 1 else 56); b.clicked.connect(lambda _, fn=fn: fn())
+            b.clicked.connect(lambda _, fn=fn: fn())
             lay.addWidget(b)
-        self.zoom_label = QLabel(); self.zoom_label.setMinimumWidth(60)
+        self.zoom_label = QLabel()
         iv.viewChanged.connect(lambda pct: self.zoom_label.setText(f"{pct:.0f}%" if pct else ""))
         lay.addWidget(self.zoom_label); lay.addStretch()
         self.view_strip_buttons = strip.findChildren(QPushButton)
@@ -802,7 +850,7 @@ class MainWindow(QMainWindow):
             self.request_preview(eff, vals)
 
         # Non-modal: a modal dialog makes the window manager dim the main window, hiding the live preview.
-        locked = [self.menuBar(), self.toolbar, self.history, self.tree, self.search, self.apply_btn, self.again_btn, self.rand_btn, self.reroll_btn]
+        locked = [self.menuBar(), self.toolbar, self.toolbar2, self.history, self.tree, self.search, self.apply_btn, self.again_btn, self.rand_btn, self.reroll_btn]
         dlg = EffectDialog(eff, initial if initial is not None else self.last_params.get(eff.name, {}), preview, self)
         dlg.setWindowModality(Qt.WindowModality.NonModal)
         self._dlg = dlg
@@ -1033,5 +1081,9 @@ def main():
     QLoggingCategory.setFilterRules("kf.kio.widgets.kdirmodel.warning=false")
     app = QApplication(sys.argv)
     app.setApplicationName("Oto-e")
+    try:  # the text size chosen last time (View > Text size)
+        uiscale.apply(int(QSettings("oto-e", "oto-e").value("font_scale", 100)))
+    except (TypeError, ValueError):
+        pass
     w = MainWindow(); w.show()
     sys.exit(app.exec())
