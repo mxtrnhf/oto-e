@@ -38,7 +38,8 @@ On some Linux distros you may need `python3-venv` and the Qt xcb libraries (`lib
   *Layout*: interleaved RGB (classic) or planar (R, then G, then B). *Samples*: unsigned 8-bit (classic, one byte per sample),
   signed 8-bit, 16-bit little- or big-endian (pairs of bytes), or µ-law. The same effect looks completely different under each.
   Changing either clears the selection, because positions in the stream mean something else.
-- Save never overwrites your original unless you choose it: first Save asks for a path, and *Save As* picks a new one. *Export a copy* (Ctrl+E) writes a copy without changing which file you are working on, handy for dumping variants. Formats: PNG, JPEG, WebP (lossless), BMP, TIFF, JPEG 2000, TGA.
+- Save never overwrites your original unless you choose it: first Save asks for a path, and *Save As* picks a new one. *Export a copy* (Ctrl+E) writes a copy without changing which file you are working on, handy for dumping variants. Formats: PNG, JPEG, WebP, BMP, TIFF, JPEG 2000, TGA. Save As and Export ask for the format's settings (JPEG quality and colour detail,
+  lossless or lossy WebP and JPEG 2000, compression levels, and so on) and remember them; plain Save reuses the last ones without asking.
 
 ## Image effects
 

@@ -1,6 +1,7 @@
 """Main window for Oto-e."""
 from __future__ import annotations
 
+import json
 import sys
 
 import numpy as np
@@ -13,7 +14,7 @@ from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialo
                              QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter, QTextBrowser, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                              QWidget)
 
-from . import effects
+from . import effects, exportopts
 from .helptext import help_html, reference_html
 from .core import BYTES_PER_SAMPLE, FORMAT_NAMES, INTERLEAVED, MODE_NAMES, Document, Rect, norm_sel, run_as_rect, run_rows
 from .effects import SR, Effect, Param
@@ -37,6 +38,39 @@ class InfoDialog(QDialog):
         view = QTextBrowser(); view.setOpenExternalLinks(True); view.setHtml(html)
         lay = QVBoxLayout(self); lay.addWidget(view)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close); bb.rejected.connect(self.close); lay.addWidget(bb)
+
+
+class ExportDialog(QDialog):
+    """The settings of one file format, asked for before writing, like the options box of any image editor."""
+
+    def __init__(self, kind: str, last: dict, parent=None):
+        super().__init__(parent)
+        self.kind = kind
+        self.setWindowTitle(f"Export options: {exportopts.TITLES[kind]}")
+        self.rows: dict[str, ParamRow] = {}
+        form = QFormLayout()
+        for p in exportopts.specs(kind):
+            row = ParamRow(p, last.get(p.key, p.default), self._changed)
+            self.rows[p.key] = row; form.addRow(p.label, row)
+            row.setToolTip(p.help); form.labelForField(row).setToolTip(p.help)
+        self.note = QLabel(); self.note.setWordWrap(True); self.note.setStyleSheet("color: gray")
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(self.accept); bb.rejected.connect(self.reject)
+        lay = QVBoxLayout(self); lay.addLayout(form); lay.addWidget(self.note); lay.addWidget(bb)
+        self._changed()
+
+    def values(self) -> dict:
+        return {k: (int(r.value()) if r.p.integer or r.p.choices else float(r.value())) for k, r in self.rows.items()}
+
+    def _changed(self, *_):
+        v = self.values()
+        if "lossy" in v:  # the quality / ratio only matters once the file is lossy
+            for k in ("quality", "ratio"):
+                if k in self.rows:
+                    self.rows[k].setEnabled(bool(v["lossy"]))
+        lossy = self.kind == "jpeg" or bool(v.get("lossy"))
+        self.note.setText("Lossy: the saved file will differ slightly from what you see." if lossy
+                          else "Lossless: every pixel is saved exactly as it is on screen.")
 
 
 class ParamRow(QWidget):
@@ -607,9 +641,9 @@ class MainWindow(QMainWindow):
             p += next(exts.split()[0] for n, exts in SAVE_FORMATS if flt.startswith(n + " ("))
         return p or None
 
-    def _write(self, p, adopt=True):
+    def _write(self, p, adopt=True, options=None):
         try:
-            self.doc.save(p, adopt)
+            self.doc.save(p, adopt, options)
         except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, "Can't save", str(e)); return False
         self.statusBar().showMessage(f"{'Saved' if adopt else 'Exported'} {p}", 4000)
@@ -621,16 +655,33 @@ class MainWindow(QMainWindow):
             return
         if self.doc.path is None:
             return self.save_as()
-        self._write(str(self.doc.path))
+        self._write(str(self.doc.path), True, self._export_options(str(self.doc.path), ask=False))  # plain Save reuses the last settings
 
     def save_as(self):
-        if self.doc.loaded and (p := self._ask_path("Save As")):
-            self._write(p)
+        if self.doc.loaded and (p := self._ask_path("Save As")) and (opts := self._export_options(p)) is not None:
+            self._write(p, True, opts)
+
+    def _export_options(self, path: str, ask: bool = True) -> dict | None:
+        """The settings to write `path` with: last used for its format, asked for first if `ask`. None = cancelled."""
+        k = exportopts.kind(path)
+        if k is None:
+            return {}
+        try:
+            saved = json.loads(str(self.settings.value(f"export/{k}", "{}")))
+        except ValueError:
+            saved = {}
+        if not ask or not exportopts.specs(k):
+            return saved
+        dlg = ExportDialog(k, saved, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        self.settings.setValue(f"export/{k}", json.dumps(dlg.values()))
+        return dlg.values()
 
     def export(self):
         """Write a copy and carry on: the document keeps its file and its unsaved-changes mark."""
-        if self.doc.loaded and (p := self._ask_path("Export a copy")):
-            self._write(p, False)
+        if self.doc.loaded and (p := self._ask_path("Export a copy")) and (opts := self._export_options(p)) is not None:
+            self._write(p, False, opts)
 
     def revert(self):
         if self.doc.loaded:

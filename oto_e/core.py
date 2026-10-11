@@ -7,6 +7,7 @@ from typing import NamedTuple
 import numpy as np
 from PIL import Image, ImageOps
 
+from . import exportopts
 from .effects import SR, Effect
 
 MAX_STEPS = 1000  # history entries kept ...
@@ -221,14 +222,13 @@ class Document:
         self.path = None  # first Save always asks, so the source is never overwritten by accident
         self.dirty = False
 
-    def save(self, path: str, adopt: bool = True):
+    def save(self, path: str, adopt: bool = True, options: dict | None = None):
         """Write the image. `adopt`: make `path` the document's file and mark it saved (Save, Save As);
-        False just exports a copy and leaves the document as it was."""
+        False just exports a copy and leaves the document as it was. `options`: the format's settings
+        (see exportopts); omitted ones take their defaults."""
         w, h = self.size
         im = Image.fromarray(self.pixels.reshape(h, w, 3), "RGB")
-        ext = Path(path).suffix.lower()
-        kw = {"quality": 95, "subsampling": 0} if ext in (".jpg", ".jpeg") else {"lossless": True} if ext == ".webp" else {}
-        im.save(path, **kw)
+        im.save(path, **exportopts.pillow_kwargs(exportopts.kind(path), options))
         if adopt:
             self.path = Path(path)
             self.dirty = False
