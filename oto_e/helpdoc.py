@@ -151,6 +151,10 @@ def controls_sections(c: Colors) -> list[Section]:
                 (k("Ctrl+Z") + " / " + k("Ctrl+Shift+Z"), "Undo / redo"),
                 ("Edit after jumping back", "Starts a new branch. The old one stays in the list, shown grey, and you can jump to it any time"),
             ]) + "<p>Very old abandoned branches are dropped only when history grows past its memory budget.</p>"),
+            Section("hist-share", "Sharing your steps",
+                    "<p><b>Edit → Copy Edit History as Text</b> puts the steps behind the current picture on the clipboard as plain text, with every setting's "
+                    "exact value, ready to paste into a chat, a caption or a bug report. It lists only the steps that lead to what you are looking at, "
+                    "not other branches. It is a description, not a file: Oto-e cannot read it back in.</p>"),
             Section("hist-tweak", "Tweaking a step", two([
                 (k("Right-click") + " a step, then <i>Tweak settings…</i>", "Reopens that effect with its old settings, starting from the picture as it was before that step. "
                                                                        "Applying creates a new branch next to the original step"),

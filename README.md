@@ -21,6 +21,7 @@ with sound effects (echo, phaser, bitcrusher, tape ageing, …), and writes the 
 - **Choose how bytes become sound.** Interleaved or planar layout, and 8-bit, signed 8-bit, 16-bit (either endianness) or µ-law
   samples, like the import settings in Audacity's raw import. The same effect looks completely different under each.
 - **History as a tree.** Undo, redo, jump to any step, and tweak the settings of any past step as a new branch. Nothing is thrown away.
+  Edit → Copy Edit History as Text puts your steps and their exact settings on the clipboard, ready to share.
 - **Randomize.** One key applies a random effect with random settings; undo it or try another.
 - **Compare** with the original at any moment.
 - **Save and export** to PNG, JPEG, WebP, BMP, TIFF, JPEG 2000 and TGA, with each format's own settings.

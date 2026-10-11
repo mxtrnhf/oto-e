@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, Q
                              QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter, QTextBrowser, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                              QWidget)
 
-from . import effects, exportopts, uiscale
+from . import effects, exportopts, steptext, uiscale
 from .helptext import help_html
 from .helpdoc import controls_sections, reference_sections
 from .helpview import HelpDialog
@@ -396,6 +396,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         self.a_copy = self._act(m, "&Copy", self.copy_image, QKeySequence.StandardKey.Copy)
         self._act(m, "Copy &Whole Image", lambda: self.copy_image(whole=True), "Ctrl+Shift+C")
+        self._act(m, "Copy Edit &History as Text", self.copy_history_text)
         m.addSeparator()
         self.a_free = self._act(m, "&Rectangle selection mode", lambda on: self.set_free_selection(on), checkable=True)
         self.a_free.setStatusTip("Drag rectangles on the image instead of runs of rows")
@@ -706,6 +707,15 @@ class MainWindow(QMainWindow):
             img = QImage(np.ascontiguousarray(rgba).data, W, h, 4 * W, QImage.Format.Format_RGBA8888).copy()
         QApplication.clipboard().setImage(img)
         self.statusBar().showMessage(f"Copied {W}×{h} px ({what}) to the clipboard", 4000)
+
+    def copy_history_text(self):
+        """Put the steps behind the current picture on the clipboard as readable text, to paste anywhere."""
+        result = steptext.history_text(self.doc) if self.doc.loaded else None
+        if result is None:
+            self.statusBar().showMessage("No edits to copy yet", 4000); return
+        text, n = result
+        QApplication.clipboard().setText(text)
+        self.statusBar().showMessage(f"Copied {n} step{'s' if n != 1 else ''} to the clipboard as text", 4000)
 
     def select_all(self):
         if self.doc.loaded:
