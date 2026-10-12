@@ -166,6 +166,15 @@ The complete list is in **Help → Controls (F1)**. The essentials:
 | **Repeat / Randomize** | Ctrl+R repeats the last effect; Ctrl+Shift+R randomizes; Ctrl+Shift+E reverts the last randomize and tries another |
 | **Undo / Redo** | Ctrl+Z / Ctrl+Shift+Z |
 
+## Development
+
+```bash
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -t .    # about a second, needs no display
+PYTHONPATH=. .venv/bin/python tools/stress_effects.py picture.jpg                # time every effect on a big picture (add --max for the worst case)
+```
+
+`tools/stress_history.py` and `tools/stress_races.py` exercise history memory and saving under load, and `tools/trailer/` renders the trailer from code.
+
 ## Credits
 
 The Image effects were inspired by [gfejer/databender](https://github.com/gfejer/databender) (GPL-3.0), a different tool that applies

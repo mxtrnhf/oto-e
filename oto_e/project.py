@@ -75,7 +75,7 @@ class Snapshot:
         self.original = doc.original  # never modified in place, so no copy is needed
         self.original_png = doc.original_png  # already encoded by an earlier save, if any
         self.live = doc.live.copy()
-        self.steps = {n.id: n.step.data.copy() for n in nodes if n.step}
+        self.steps = {n.id: n.step.data for n in nodes if n.step}  # no copy: Step.swap rebinds `data` and never writes into the old array
 
 
 def snapshot(doc: Document) -> Snapshot:
@@ -121,7 +121,7 @@ def read(path: str) -> dict:
             for e in m["nodes"]:  # parents always have smaller ids than their children
                 step = None
                 if e["lo"] is not None:
-                    data = np.frombuffer(z.read(f"steps/{e['id']}.bin"), np.uint8).copy()
+                    data = np.frombuffer(z.read(f"steps/{e['id']}.bin"), np.uint8)  # read-only is fine: a step is only ever read, then replaced
                     if e["lo"] < 0 or e["lo"] + len(data) > total:
                         raise ProjectError("A history step does not fit the picture")
                     step = Step(e["lo"], data)

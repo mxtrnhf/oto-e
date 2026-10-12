@@ -11,7 +11,7 @@ from . import exportopts
 from .effects import SR, Effect
 
 MAX_STEPS = 1000  # history entries kept ...
-MAX_HISTORY_BYTES = 1 << 30  # ... or until their stored deltas exceed this (oldest abandoned ones go first)
+MAX_HISTORY_BYTES = 1 << 30  # ... or until their stored deltas exceed this (oldest abandoned ones go first); View > History memory changes it
 INTERLEAVED, PLANAR = 0, 1
 MODE_NAMES = ["Interleaved RGB (classic)", "Planar (R, then G, then B)"]
 
@@ -212,6 +212,7 @@ class Document:
         self.mode = INTERLEAVED
         self.fmt = U8
         self.dirty = False
+        self.max_history_bytes = MAX_HISTORY_BYTES
 
     def _reset_history(self):
         self.root = self.node = Node(0, None, {"name": "Original"}, None)
@@ -336,7 +337,7 @@ class Document:
     def _trim(self):
         """Over budget: drop the oldest branch tips that are not on the way to the current state."""
         total = sum(len(n.step.data) for n in self.nodes.values() if n.step)
-        while len(self.nodes) > 2 and (len(self.nodes) > MAX_STEPS or total > MAX_HISTORY_BYTES):
+        while len(self.nodes) > 2 and (len(self.nodes) > MAX_STEPS or total > self.max_history_bytes):
             on_path = self._path_ids()
             tips = [n for n in self.nodes.values() if not n.children and n.id not in on_path]
             if tips:

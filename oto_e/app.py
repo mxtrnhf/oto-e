@@ -509,6 +509,11 @@ class MainWindow(QMainWindow):
             self.open_path(sys.argv[1])
 
     # ------------------------------------------------------------ text size
+    def set_history_memory(self, mb: int):
+        self.settings.setValue("history_mb", mb)
+        self.doc.max_history_bytes = mb << 20; self.doc._trim(); self._refresh()
+        self.statusBar().showMessage(f"History may use up to {mb} MB; older abandoned branches are dropped beyond that", 5000)
+
     def _fit_sizes(self):
         """Sizes that cannot simply follow the font: derive them from it, so they stay right at every text size."""
         for b in self.view_strip_buttons:
@@ -608,6 +613,11 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         self._act(m, "Zoom Waveform to Fit", lambda: self.wave._set_view(0, len(self.wave.x)), "Ctrl+Shift+0")
         m.addSeparator()
+        sub = m.addMenu("&History memory"); g = QActionGroup(self)
+        cur_mb = int(self.settings.value("history_mb", 1024)); self.doc.max_history_bytes = cur_mb << 20
+        for mb, label in ((256, "256 MB"), (512, "512 MB"), (1024, "1 GB (default)"), (2048, "2 GB"), (4096, "4 GB")):
+            a = self._act(sub, label, lambda _, mb=mb: self.set_history_memory(mb), checkable=True); g.addAction(a); a.setChecked(mb == cur_mb)
+        sub.setToolTip("How much memory the edit history may use before the oldest abandoned branches are dropped")
         sub = m.addMenu("Text &size"); g = QActionGroup(self); current = round(uiscale.scale * 100)
         for pct, label in uiscale.PRESETS:
             a = self._act(sub, label, lambda _, pct=pct: self.set_text_size(pct), checkable=True)
