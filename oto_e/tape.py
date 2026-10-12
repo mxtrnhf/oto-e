@@ -179,7 +179,7 @@ flat-recorded but played with B sounds dull, and a level error makes it pump.</l
 after) and dropouts. In reality binder breakdown, heat and humidity drive this.</li>
 <li><b>Damage:</b> creases and stretch: irregular speed drift, clicks and extra dropouts.</li>
 <li><b>Hiss / Dropouts:</b> the noise floor, and patches where oxide has come off.</li>
-<li><b>Machines' own wow and flutter</b> (Advanced): every deck wobbles a little by itself, more on a cheap one. It is added to the sliders, so with both at 0 the picture still moves by a few pixels unless you choose Ignore.</li>
+<li><b>Machines' own wow and flutter</b> (Advanced): every deck wobbles a little by itself, more on a cheap one. By default it is ignored, so with both sliders at 0 the picture stays steady; choose Include to add it to the sliders (the cheaper presets do).</li>
 <li><b>Wow</b> is a slow speed wobble (below roughly 4&ndash;6&nbsp;Hz) and <b>flutter</b> a faster one (up to about 100&nbsp;Hz). Both shear shapes sideways.</li>
 </ul>
 
@@ -220,9 +220,9 @@ simplified.</i></p>
     Param("dropouts", "Dropouts", 20, 0, 100, 1, " %", group="Tape condition"),
     Param("wow", "Wow (slow speed wobble)", 25, 0, 100, 1, " %", group="Tape condition"),
     Param("flutter", "Flutter (fast speed jitter)", 20, 0, 100, 1, " %", group="Tape condition"),
-    Param("deck_wf", "Machines' own wow and flutter", 1, 0, 1, 1, "", True,
+    Param("deck_wf", "Machines' own wow and flutter", 0, 0, 1, 1, "", True,
           ["Ignore (only the Wow and Flutter sliders)", "Include (each machine's built-in wobble)"], "Tape condition", advanced=True,
-          help="Every deck has some speed wobble of its own, more on a cheap one. Include adds it on top of the sliders, so the picture wobbles a little even with both at 0. Ignore leaves the picture perfectly steady until you raise the sliders."),
+          help="Every deck has some speed wobble of its own, more on a cheap one. Ignore (the default) leaves the picture perfectly steady until you raise the Wow and Flutter sliders. Include adds each machine's own wobble on top of the sliders."),
     Param("lock", "Timing errors", 0, 0, 1, 1, "", True, ["Keep colours (snap to whole pixels)", "Rotate hue freely"], "Tape condition", advanced=True),
     Param("deck_play", "Played on", 1, 0, 4, 1, "", True, DECK_NAMES, "Playback", advanced=True),
     Param("play_q", "Playback head quality", 80, 0, 100, 1, " %", group="Playback", advanced=True),
@@ -238,21 +238,21 @@ simplified.</i></p>
                                               wow=8, flutter=6, play_q=95, azimuth=0, speed=0, gens=1, plays=0),
     "Pristine studio reel (metal, Dolby C)": dict(deck_rec=0, deck_play=0, tape=2, rec_q=100, rec_lvl=-3, nr_rec=2, nr_play=2, nr_err=0, age=0, wear=0, hiss=5, dropouts=0,
                                                    wow=3, flutter=2, play_q=100, azimuth=0, speed=0, gens=1, plays=0),
-    "Old mixtape": dict(deck_rec=3, deck_play=2, tape=0, rec_q=72, rec_lvl=3, nr_rec=0, nr_play=0, nr_err=0, age=22, wear=25, hiss=50, dropouts=25,
+    "Old mixtape": dict(deck_wf=1, deck_rec=3, deck_play=2, tape=0, rec_q=72, rec_lvl=3, nr_rec=0, nr_play=0, nr_err=0, age=22, wear=25, hiss=50, dropouts=25,
                         wow=35, flutter=25, play_q=78, azimuth=15, speed=0, gens=1, plays=40),
-    "Dolby mismatch (B recorded, played flat)": dict(deck_rec=2, deck_play=2, tape=0, rec_q=75, rec_lvl=0, nr_rec=1, nr_play=0, nr_err=0, age=8, wear=5, hiss=35, dropouts=8,
+    "Dolby mismatch (B recorded, played flat)": dict(deck_wf=1, deck_rec=2, deck_play=2, tape=0, rec_q=75, rec_lvl=0, nr_rec=1, nr_play=0, nr_err=0, age=8, wear=5, hiss=35, dropouts=8,
                                                       wow=15, flutter=10, play_q=80, azimuth=0, speed=0, gens=1, plays=0),
     "Dubbed five times": dict(deck_rec=1, deck_play=1, tape=1, rec_q=92, rec_lvl=0, nr_rec=1, nr_play=1, nr_err=0, age=6, wear=10, hiss=35,
                               dropouts=10, wow=15, flutter=10, play_q=92, azimuth=0, speed=0, gens=5, plays=0),
-    "Worn out by playing (200 plays)": dict(deck_rec=2, deck_play=2, tape=0, rec_q=80, rec_lvl=0, nr_rec=0, nr_play=0, nr_err=0, age=15, wear=35, hiss=40, dropouts=30,
+    "Worn out by playing (200 plays)": dict(deck_wf=1, deck_rec=2, deck_play=2, tape=0, rec_q=80, rec_lvl=0, nr_rec=0, nr_play=0, nr_err=0, age=15, wear=35, hiss=40, dropouts=30,
                                              wow=30, flutter=20, play_q=85, azimuth=20, speed=0, gens=1, plays=200),
-    "Basement find (35 years, damp)": dict(deck_rec=3, deck_play=3, tape=0, rec_q=45, rec_lvl=4, nr_rec=0, nr_play=0, nr_err=0, age=35, wear=70, hiss=65, dropouts=55,
+    "Basement find (35 years, damp)": dict(deck_wf=1, deck_rec=3, deck_play=3, tape=0, rec_q=45, rec_lvl=4, nr_rec=0, nr_play=0, nr_err=0, age=35, wear=70, hiss=65, dropouts=55,
                                             wow=60, flutter=40, play_q=45, azimuth=35, speed=-2.5, gens=1, plays=30),
-    "Chewed by the machine": dict(deck_rec=4, deck_play=4, tape=0, rec_q=40, rec_lvl=5, nr_rec=0, nr_play=0, nr_err=0, age=25, wear=100, hiss=70, dropouts=80,
+    "Chewed by the machine": dict(deck_wf=1, deck_rec=4, deck_play=4, tape=0, rec_q=40, rec_lvl=5, nr_rec=0, nr_play=0, nr_err=0, age=25, wear=100, hiss=70, dropouts=80,
                                    wow=90, flutter=70, lock=1, play_q=35, azimuth=50, speed=4, gens=2, plays=100),
 }, info=INFO_HTML, default_preset="Old mixtape")
 def tape(x, sr, tape, deck_rec, deck_play, rec_q, rec_lvl, nr_rec, nr_play, nr_err, age, wear, hiss, dropouts, wow, flutter, lock,
-         play_q, azimuth, deck_speed, speed, gens, plays, seed, deck_wf=1):
+         play_q, azimuth, deck_speed, speed, gens, plays, seed, deck_wf=0):
     ty = int(tape); q = rec_q / 100; pq = play_q / 100
     dr, dp = DECKS[int(deck_rec)], DECKS[int(deck_play)]
     # each machine runs slightly off nominal speed; the same machine for both cancels it, two different ones don't.
