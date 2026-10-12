@@ -52,7 +52,13 @@ class WindowTests(unittest.TestCase):
         self.w = app.MainWindow(); self.w.open_path(str(self.img), confirmed=True); wait(lambda: self.w.doc.loaded)
 
     def tearDown(self):
-        self.w._autosave_timer.stop(); self.tmp.cleanup()
+        w = self.w
+        w._autosave_timer.stop(); w._job_pool.waitForDone(); w._save_pool.waitForDone(); w._pv_pool.waitForDone()
+        QT.processEvents()
+        QApplication.instance().removeEventFilter(w)  # the window installs itself as an application-wide filter (for the C key)
+        QApplication.instance().removeEventFilter(w._tooltips)
+        w.hide(); w.deleteLater(); QT.processEvents()
+        self.tmp.cleanup()
 
     def test_opening_is_refused_while_an_effect_dialog_is_open(self):
         self.w.run_effect(effects.by_name("Echo")); doc = self.w.doc
