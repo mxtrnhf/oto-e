@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="oto-e-cfg-")  # never touch the real settings
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 

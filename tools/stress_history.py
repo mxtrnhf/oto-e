@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="oto-e-cfg-")  # never touch the real settings
 from oto_e import effects, project  # noqa: E402
 from oto_e.core import Document, norm_sel  # noqa: E402
 

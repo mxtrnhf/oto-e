@@ -221,7 +221,7 @@ simplified.</i></p>
     Param("wow", "Wow (slow speed wobble)", 25, 0, 100, 1, " %", group="Tape condition"),
     Param("flutter", "Flutter (fast speed jitter)", 20, 0, 100, 1, " %", group="Tape condition"),
     Param("deck_wf", "Machines' own wow and flutter", 0, 0, 1, 1, "", True,
-          ["Ignore (only the Wow and Flutter sliders)", "Include (each machine's built-in wobble)"], "Tape condition", advanced=True,
+          ["Ignore (only the Wow and Flutter sliders)", "Include (each machine's built-in wobble)"], "Tape condition", advanced=True, legacy=1,
           help="Every deck has some speed wobble of its own, more on a cheap one. Ignore (the default) leaves the picture perfectly steady until you raise the Wow and Flutter sliders. Include adds each machine's own wobble on top of the sliders."),
     Param("lock", "Timing errors", 0, 0, 1, 1, "", True, ["Keep colours (snap to whole pixels)", "Rotate hue freely"], "Tape condition", advanced=True),
     Param("deck_play", "Played on", 1, 0, 4, 1, "", True, DECK_NAMES, "Playback", advanced=True),

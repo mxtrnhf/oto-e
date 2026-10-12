@@ -20,7 +20,7 @@ def to_text(info: dict) -> str:
     """The recipe for one history step's `info`."""
     eff = effects.by_name(info["name"])
     spec = {p.key: p for p in eff.params}
-    params = {k: (spec[k].choices[int(v)] if k in spec and spec[k].choices else v) for k, v in (info.get("params") or {}).items()}
+    params = {k: (spec[k].choices[int(v)] if k in spec and spec[k].choices else v) for k, v in effects.complete_params(eff, info.get("params")).items()}
     return json.dumps({"v": VERSION, "effect": eff.name, "params": params}, ensure_ascii=False)
 
 

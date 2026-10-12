@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import sys
+import time
+import traceback
 
 import numpy as np
 from pathlib import Path
@@ -399,6 +401,8 @@ class MainWindow(QMainWindow):
         self._jobs: dict[int, tuple] = {}  # running background jobs: id -> (on success, on error)
         self._job_ids = 0
         self._busy = None  # id of the job that has the window locked (applying an effect, opening a file), if any
+        self._abandoned: set[int] = set()  # given-up jobs whose threads are still running
+        self._busy_timer = QTimer(self); self._busy_timer.setInterval(1000); self._busy_timer.timeout.connect(self._tick_busy)
         self._job_pool = QThreadPool(self); self._job_pool.setMaxThreadCount(3)
         self._job_signals = _JobSignals(); self._job_signals.done.connect(self._job_done)
         self._esc = QShortcut(QKeySequence("Esc"), self, activated=self._cancel_busy); self._esc.setEnabled(False)  # only while a job locks the window
@@ -915,8 +919,8 @@ class MainWindow(QMainWindow):
             self.open_path(p, confirmed=True)
 
     def open_path(self, p, confirmed=False):
-        if self._saving or self._busy is not None:
-            self.statusBar().showMessage("Wait for the current operation to finish first", 4000); return
+        if self._saving or self._busy is not None or getattr(self, "_dlg", None):
+            self.statusBar().showMessage("Finish or cancel what is open first", 4000); return
         if not confirmed and not self._confirm_discard():
             return
         is_project = Path(p).suffix.lower() == project.EXT
@@ -1072,44 +1076,58 @@ class MainWindow(QMainWindow):
     def _locked_widgets(self):
         return [self.menuBar(), self.toolbar, self.toolbar2, self.history, self.tree, self.search, self.apply_btn, self.again_btn, self.rand_btn, self.reroll_btn]
 
+    MAX_ABANDONED = 2  # threads still finishing work that was given up on; more than this and a new job would sit in the queue
+
     def _run_job(self, fn, on_ok, on_error=None, lock: str | None = None):
         """Run `fn()` on a worker thread, then `on_ok(result)` (or `on_error(message)`) on the UI thread.
-        `lock`: keep the window locked, showing this text, until it finishes. Esc gives up on it (the thread itself cannot be
-        interrupted and finishes in the background; its result is dropped)."""
+        `lock`: keep the window locked, showing this text and the seconds so far, until it finishes. Esc gives up on it
+        (the thread itself cannot be interrupted and finishes in the background; its result is dropped)."""
+        if lock and len(self._abandoned) >= self.MAX_ABANDONED:
+            self.statusBar().showMessage(f"Still finishing {len(self._abandoned)} earlier runs you gave up on. Try again in a moment.", 6000)
+            return None
         self._job_ids += 1; jid = self._job_ids
         self._jobs[jid] = (on_ok, on_error)
         if lock:
-            self._busy = jid
+            self._busy = jid; self._busy_text = lock; self._busy_t0 = time.monotonic()
             for w in self._locked_widgets():
                 w.setEnabled(False)
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor); self._esc.setEnabled(True)
-            self.statusBar().showMessage(f"{lock}  (Esc to give up)")
+            self._busy_timer.start(); self._tick_busy()
         self._job_pool.start(_Job(jid, fn, self._job_signals))
         return jid
 
+    def _tick_busy(self):
+        if self._busy is not None:
+            secs = int(time.monotonic() - self._busy_t0)
+            self.statusBar().showMessage(f"{self._busy_text}  {secs} s  (Esc to give up)")
+
     def _unlock(self, jid):
         if self._busy == jid:
-            self._busy = None; self._esc.setEnabled(False)
+            self._busy = None; self._esc.setEnabled(False); self._busy_timer.stop()
             QApplication.restoreOverrideCursor()
             for w in self._locked_widgets():
                 w.setEnabled(True)
 
     def _job_done(self, jid, result, error):
         cbs = self._jobs.pop(jid, None)
+        self._abandoned.discard(jid)
         self._unlock(jid)
         if cbs is None:  # given up on
             return
         on_ok, on_error = cbs
-        if error is not None:
-            if on_error:
-                on_error(error)
-        else:
-            on_ok(result)
+        try:
+            if error is not None:
+                if on_error:
+                    on_error(error)
+            else:
+                on_ok(result)
+        except Exception:  # noqa: BLE001  a bug in a callback must not take the session down
+            sys.excepthook(*sys.exc_info())
 
     def _cancel_busy(self):
         if self._busy is not None:
             jid = self._busy
-            self._jobs.pop(jid, None); self._unlock(jid)
+            self._jobs.pop(jid, None); self._abandoned.add(jid); self._unlock(jid)
             self.statusBar().showMessage("Gave up", 4000)
             self._refresh()
 
@@ -1187,7 +1205,7 @@ class MainWindow(QMainWindow):
         self._set_selection(info.get("sel"))
         self._refresh()
         self.statusBar().showMessage(f"Tweaking step {node_id} ({eff.name}); applies as a new branch", 6000)
-        self.run_effect(eff, initial=info.get("params", {}), extra={"tweak_of": node_id}, on_cancel=restore)
+        self.run_effect(eff, initial=effects.complete_params(eff, info.get("params")), extra={"tweak_of": node_id}, on_cancel=restore)
 
     def duplicate_step(self, node_id: int):
         """Apply a past step's effect once more, with the same settings, selection and reading mode, on top of the current picture."""
@@ -1201,7 +1219,7 @@ class MainWindow(QMainWindow):
         except StopIteration:
             return
         where = {"sel": info.get("sel"), "mode": info.get("mode", d.mode), "fmt": info.get("fmt", d.fmt)}
-        self._apply(eff, dict(info.get("params") or {}), extra={"duplicate_of": node_id}, where=where)
+        self._apply(eff, effects.complete_params(eff, info.get("params")), extra={"duplicate_of": node_id}, where=where)
 
     def goto_state(self, i):
         if self.doc.goto(i):
@@ -1404,11 +1422,31 @@ class MainWindow(QMainWindow):
             self._apply(*self.last_effect)
 
 
+def _install_excepthook():
+    """Show an unhandled error in a box instead of letting PyQt end the program (and any unsaved work with it)."""
+    busy = []
+
+    def hook(etype, value, tb):
+        text = "".join(traceback.format_exception(etype, value, tb))
+        sys.stderr.write(text)
+        if busy:  # an error while showing an error: stay quiet
+            return
+        busy.append(1)
+        try:
+            box = QMessageBox(QMessageBox.Icon.Critical, "Oto-e hit a problem",
+                              "Something went wrong. Your session is still open: save it before doing anything else.")
+            box.setInformativeText(str(value)); box.setDetailedText(text); box.exec()
+        finally:
+            busy.clear()
+    sys.excepthook = hook
+
+
 def main():
     # KDE's file dialog logs a harmless warning whenever files in the folder it is showing get rewritten
     QLoggingCategory.setFilterRules("kf.kio.widgets.kdirmodel.warning=false")
     app = QApplication(sys.argv)
     app.setApplicationName("Oto-e")
+    _install_excepthook()
     try:  # the text size chosen last time (View > Text size)
         uiscale.apply(int(QSettings("oto-e", "oto-e").value("font_scale", 100)))
     except (TypeError, ValueError):

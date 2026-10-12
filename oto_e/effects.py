@@ -30,6 +30,7 @@ class Param:
     group: str = ""  # section heading shown above this parameter in the dialog
     help: str = ""  # one-line explanation shown as a tooltip and in the help page (see helptext.py)
     advanced: bool = False  # kept in a folded "Advanced" section of the dialog (it opens by itself when one of these has been changed)
+    legacy: float | None = None  # what a step saved before this setting existed was applied with (replays use it instead of `default`)
     slow_above: float | None = None  # a note "slow on large pictures" appears next to the value once it goes above this
 
 
@@ -676,6 +677,17 @@ def noise_conv(x, sr, ms, decay, mix, seed):
 def asym_sat(x, sr, drive, bias):
     d = 10 ** (drive / 20)
     return (np.tanh(d * (x + bias)) - np.tanh(d * bias)).astype(np.float32)
+
+
+# effects that take several seconds on a large picture even at their default settings (measured on 2176x3840): the dialog says so
+SLOW = {"JPEG Cruncher", "Phaser", "Chorus", "Paulstretch", "Whisper (random phase)", "Tape Recording (record → age → playback)"}
+
+
+def complete_params(eff: Effect, params: dict | None) -> dict:
+    """`params` of a stored history step with every setting present. A setting the step predates gets its `legacy` value,
+    so re-running an old step reproduces what it did, not what today's default would do."""
+    params = params or {}
+    return {p.key: params.get(p.key, p.legacy if p.legacy is not None else p.default) for p in eff.params}
 
 
 def by_name(name: str) -> Effect:
