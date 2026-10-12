@@ -179,6 +179,7 @@ flat-recorded but played with B sounds dull, and a level error makes it pump.</l
 after) and dropouts. In reality binder breakdown, heat and humidity drive this.</li>
 <li><b>Damage:</b> creases and stretch: irregular speed drift, clicks and extra dropouts.</li>
 <li><b>Hiss / Dropouts:</b> the noise floor, and patches where oxide has come off.</li>
+<li><b>Machines' own wow and flutter</b> (Advanced): every deck wobbles a little by itself, more on a cheap one. It is added to the sliders, so with both at 0 the picture still moves by a few pixels unless you choose Ignore.</li>
 <li><b>Wow</b> is a slow speed wobble (below roughly 4&ndash;6&nbsp;Hz) and <b>flutter</b> a faster one (up to about 100&nbsp;Hz). Both shear shapes sideways.</li>
 </ul>
 
@@ -219,6 +220,9 @@ simplified.</i></p>
     Param("dropouts", "Dropouts", 20, 0, 100, 1, " %", group="Tape condition"),
     Param("wow", "Wow (slow speed wobble)", 25, 0, 100, 1, " %", group="Tape condition"),
     Param("flutter", "Flutter (fast speed jitter)", 20, 0, 100, 1, " %", group="Tape condition"),
+    Param("deck_wf", "Machines' own wow and flutter", 1, 0, 1, 1, "", True,
+          ["Ignore (only the Wow and Flutter sliders)", "Include (each machine's built-in wobble)"], "Tape condition", advanced=True,
+          help="Every deck has some speed wobble of its own, more on a cheap one. Include adds it on top of the sliders, so the picture wobbles a little even with both at 0. Ignore leaves the picture perfectly steady until you raise the sliders."),
     Param("lock", "Timing errors", 0, 0, 1, 1, "", True, ["Keep colours (snap to whole pixels)", "Rotate hue freely"], "Tape condition", advanced=True),
     Param("deck_play", "Played on", 1, 0, 4, 1, "", True, DECK_NAMES, "Playback", advanced=True),
     Param("play_q", "Playback head quality", 80, 0, 100, 1, " %", group="Playback", advanced=True),
@@ -248,19 +252,20 @@ simplified.</i></p>
                                    wow=90, flutter=70, lock=1, play_q=35, azimuth=50, speed=4, gens=2, plays=100),
 }, info=INFO_HTML, default_preset="Old mixtape")
 def tape(x, sr, tape, deck_rec, deck_play, rec_q, rec_lvl, nr_rec, nr_play, nr_err, age, wear, hiss, dropouts, wow, flutter, lock,
-         play_q, azimuth, deck_speed, speed, gens, plays, seed):
+         play_q, azimuth, deck_speed, speed, gens, plays, seed, deck_wf=1):
     ty = int(tape); q = rec_q / 100; pq = play_q / 100
     dr, dp = DECKS[int(deck_rec)], DECKS[int(deck_play)]
     # each machine runs slightly off nominal speed; the same machine for both cancels it, two different ones don't.
     # Optional, because on a picture even 0.05 % slants every row (see the guide).
     net_speed = speed + (dp["speed"] - dr["speed"] if int(deck_speed) == 1 else 0.0)
+    own_wf = 1 if int(deck_wf) else 0  # the machines' built-in wobble, on or off
     wear_p = 1 - np.exp(-plays / 120)  # head/oxide wear from repeated playing, saturating
     for gen in range(int(gens)):
         last = gen == int(gens) - 1
         rng = np.random.default_rng(int(seed) * 1000 + gen)
         pw = wear_p if last else 0.0
         c = dict(
-            wow=min(wow / 100 + dr["wow"] + dp["wow"], 1.5), flutter=min(flutter / 100 + dr["flutter"] + dp["flutter"], 1.5),
+            wow=min(wow / 100 + own_wf * (dr["wow"] + dp["wow"]), 1.5), flutter=min(flutter / 100 + own_wf * (dr["flutter"] + dp["flutter"]), 1.5),
             wear=wear / 100,
             hf_loss_db=min(0.2 * age + 0.1 * wear + 6 * pw, 36),
             print_db=min(-62 + 0.55 * age + 0.1 * wear, -30),
