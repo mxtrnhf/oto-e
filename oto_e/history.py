@@ -41,6 +41,7 @@ class HistoryPanel(QWidget):
     recipeCopyRequested = pyqtSignal(int)  # id of the step whose effect and settings go to the clipboard
     recipeSaveRequested = pyqtSignal(int)  # same, to a file
     recipeImportRequested = pyqtSignal()  # open the import-recipe dialog
+    duplicateRequested = pyqtSignal(int)  # id of the step whose effect and settings should be applied again, on top of the current picture
     tweakRequested = pyqtSignal(int)  # id of the step whose settings should be adjusted
 
     def __init__(self):
@@ -72,6 +73,9 @@ class HistoryPanel(QWidget):
         info = next(e["info"] for e in self.entries if e["id"] == nid)
         menu = QMenu(self)
         menu.addAction("Go to this step", lambda: self.jump.emit(nid))
+        known = any(e.name == info["name"] for e in effects.EFFECTS)
+        dup = menu.addAction("Duplicate (apply again)", lambda: self.duplicateRequested.emit(nid)); dup.setEnabled(known)
+        dup.setToolTip("Apply this step's effect once more with the same settings, on top of the current picture")
         tweak = menu.addAction("Tweak settings…", lambda: self.tweakRequested.emit(nid))
         tweakable = bool(info.get("params")) and any(e.name == info["name"] for e in effects.EFFECTS)
         tweak.setEnabled(tweakable)

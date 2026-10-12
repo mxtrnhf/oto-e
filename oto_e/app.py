@@ -412,6 +412,7 @@ class MainWindow(QMainWindow):
         self.history.viewChanged.connect(lambda i: self.settings.setValue("history_view", i))
         self.history.jump.connect(self.goto_state)
         self.history.tweakRequested.connect(self.tweak_step)
+        self.history.duplicateRequested.connect(self.duplicate_step)
         self.history.recipeCopyRequested.connect(self.copy_recipe)
         self.history.recipeSaveRequested.connect(self.save_recipe)
         self.history.recipeImportRequested.connect(self.import_recipe)
@@ -1146,6 +1147,20 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Tweaking step {node_id} ({eff.name}); applies as a new branch", 6000)
         self.run_effect(eff, initial=info.get("params", {}), extra={"tweak_of": node_id}, on_cancel=restore)
 
+    def duplicate_step(self, node_id: int):
+        """Apply a past step's effect once more, with the same settings, selection and reading mode, on top of the current picture."""
+        d = self.doc
+        node = d.nodes.get(node_id)
+        if node is None or node.parent is None or self._busy is not None or getattr(self, "_dlg", None):
+            return
+        info = node.info
+        try:
+            eff = effects.by_name(info["name"])
+        except StopIteration:
+            return
+        where = {"sel": info.get("sel"), "mode": info.get("mode", d.mode), "fmt": info.get("fmt", d.fmt)}
+        self._apply(eff, dict(info.get("params") or {}), extra={"duplicate_of": node_id}, where=where)
+
     def goto_state(self, i):
         if self.doc.goto(i):
             self._refresh()
@@ -1272,15 +1287,15 @@ class MainWindow(QMainWindow):
         if getattr(self, "_dlg", None):
             self._dlg.set_busy(busy)
 
-    def _apply(self, eff, params, random=False, extra=None, then=None):
+    def _apply(self, eff, params, random=False, extra=None, then=None, where=None):
         """Apply `eff` to the current selection and add it to the history. If the preview already computed this exact result it is
         used at once; otherwise the effect runs on a worker thread with the window locked (a heavy one can take a minute).
-        `then()` runs after the step has been added."""
+        `then()` runs after the step has been added. `where` ({sel, mode, fmt}) overrides the current selection and reading mode."""
         cached = self._pv_cache
         self._pv_cache = None
         d = self.doc
-        sel = norm_sel(self.sel)
-        info = {"name": eff.name, "params": params, "sel": sel, "mode": d.mode, "fmt": d.fmt, "random": random, **(extra or {})}
+        sel, mode, fmt = (where["sel"], where["mode"], where["fmt"]) if where else (norm_sel(self.sel), d.mode, d.fmt)
+        info = {"name": eff.name, "params": params, "sel": sel, "mode": mode, "fmt": fmt, "random": random, **(extra or {})}
 
         def finish(px):
             if d.node is not at or self.doc is not d:  # the history moved on while we were computing
@@ -1293,9 +1308,9 @@ class MainWindow(QMainWindow):
                 then()
 
         at = d.node
-        if cached and cached[0] == self._pv_key(eff, params):
+        if cached and not where and cached[0] == self._pv_key(eff, params):
             finish(cached[1]); return  # the preview already is the result
-        base, mode, fmt = d.live.copy(), d.mode, d.fmt
+        base = d.live.copy()
         self._run_job(lambda: d.compute(eff, params, sel, base=base, mode=mode, fmt=fmt), finish,
                       lambda msg: QMessageBox.critical(self, eff.name, f"Effect failed: {msg}"), lock=f"Applying {eff.name}…")
 
