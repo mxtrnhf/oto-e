@@ -5,4 +5,4 @@ databender_orig
 dist/
 build/
 test_files/
-trailer/
+/trailer/
