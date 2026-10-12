@@ -29,6 +29,8 @@ class Param:
     choices: list[str] | None = None  # if set, value is the choice index
     group: str = ""  # section heading shown above this parameter in the dialog
     help: str = ""  # one-line explanation shown as a tooltip and in the help page (see helptext.py)
+    advanced: bool = False  # kept in a folded "Advanced" section of the dialog (it opens by itself when one of these has been changed)
+    slow_above: float | None = None  # a note "slow on large pictures" appears next to the value once it goes above this
 
 
 @dataclass
@@ -42,6 +44,7 @@ class Effect:
     summary: str = ""  # what the effect does, in picture terms (see helptext.py)
     audio: str = ""  # what it is for in ordinary audio work (see helptext.py)
     randomizable: bool = True  # False: never picked by Randomize (too slow, or too heavy to surprise someone with)
+    default_preset: str = ""  # a preset the dialog starts from the first time, when the plain defaults would give an underwhelming result
     domain: str = "audio"  # "audio": fn(x, sr, **params) on the sample stream. "image": fn(img, **params) on an (h, w, 3) uint8 picture
     crop: Callable[[dict], str | None] | None = None  # picture effects: how a small-scale preview may crop the target for these settings:
     # "rows" (a band of rows) or "cols" (a band of columns), when the result there is identical to the full run's, or "box" (a centred box)
@@ -52,9 +55,9 @@ EFFECTS: list[Effect] = []
 
 
 def effect(name: str, category: str, params: list[Param] | None = None, presets: dict[str, dict] | None = None,
-           info: str = "", domain: str = "audio", crop: Callable[[dict], str | None] | None = None):
+           info: str = "", domain: str = "audio", crop: Callable[[dict], str | None] | None = None, default_preset: str = ""):
     def deco(fn):
-        EFFECTS.append(Effect(name, category, fn, params or [], presets or {}, info, domain=domain, crop=crop))
+        EFFECTS.append(Effect(name, category, fn, params or [], presets or {}, info, domain=domain, crop=crop, default_preset=default_preset))
         return fn
     return deco
 

@@ -147,6 +147,11 @@ class ParamRow(QWidget):
         self.s.valueChanged.connect(self._from_slider)
         self.w.valueChanged.connect(lambda _: (self._sync_slider(), on_change()))
         lay.addWidget(self.s, 1); lay.addWidget(self.w)
+        if p.slow_above is not None:  # a heads-up beside the value once it makes the effect slow on a big picture
+            self.slow = QLabel("slow on large pictures"); self.slow.setStyleSheet("color: #c27c0e")
+            lay.addWidget(self.slow)
+            self.w.valueChanged.connect(lambda v: self.slow.setVisible(v > p.slow_above))
+            self.slow.setVisible(value > p.slow_above)
 
     def _sync_slider(self):
         span = self.p.max - self.p.min
@@ -179,16 +184,33 @@ class EffectDialog(QDialog):
         if not eff.params:
             note = QLabel("This effect has no settings. The picture shows the result; press OK to apply it.")
             note.setWordWrap(True); note.setStyleSheet("color: gray"); form.addRow(note)
-        group = ""
+        starting_fresh = not last and bool(eff.default_preset)  # first time: begin from the effect's own recommended preset
+        if starting_fresh:
+            last = {**{p.key: p.default for p in eff.params}, **eff.presets[eff.default_preset]}
+        adv_form = QFormLayout()
+        shown = {"": ""}  # the heading last written to each form
         for p in eff.params:
-            if p.group and p.group != group:  # section heading
-                group = p.group
-                head = QLabel(f"<b>{group}</b>"); head.setContentsMargins(0, 8, 0, 0)
-                form.addRow(head)
+            f = adv_form if p.advanced else form
+            if p.group and p.group != shown.get(id(f), ""):  # section heading
+                shown[id(f)] = p.group
+                head = QLabel(f"<b>{p.group}</b>"); head.setContentsMargins(0, 8, 0, 0)
+                f.addRow(head)
             row = ParamRow(p, last.get(p.key, p.default), self._changed)
-            self.rows[p.key] = row; form.addRow(p.label, row)
+            self.rows[p.key] = row; f.addRow(p.label, row)
             if p.help:  # hover for a quick reminder of what this setting does, and what values it takes
-                row.setToolTip(param_tip(p)); form.labelForField(row).setToolTip(param_tip(p))
+                row.setToolTip(param_tip(p)); f.labelForField(row).setToolTip(param_tip(p))
+        body_lay = QVBoxLayout(); body_lay.addLayout(form)
+        self.adv_toggle = None
+        if any(p.advanced for p in eff.params):
+            self.adv_toggle = QToolButton(); self.adv_toggle.setCheckable(True); self.adv_toggle.setAutoRaise(True)
+            self.adv_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            self.adv_box = QWidget(); self.adv_box.setLayout(adv_form); self.adv_box.setVisible(False)
+            self.adv_toggle.toggled.connect(self._show_advanced)
+            body_lay.addWidget(self.adv_toggle); body_lay.addWidget(self.adv_box)
+            self._update_adv_label()
+            if not starting_fresh and self._advanced_changed():  # opening with settings of your own: show where they are
+                self.adv_toggle.setChecked(True)
+        body_lay.addStretch(1)
         self.live = QCheckBox("Live preview"); self.live.setChecked(True)
         self.live.toggled.connect(self._changed)
         self.busy = QLabel(""); self.busy.setStyleSheet("color: gray")
@@ -221,12 +243,12 @@ class EffectDialog(QDialog):
                 pl.addWidget(ib)
             lay.addLayout(pl)
         if len(eff.params) > 10:  # long forms scroll instead of growing past the screen
-            body = QWidget(); body.setLayout(form)
+            body = QWidget(); body.setLayout(body_lay)
             area = QScrollArea(); area.setWidget(body); area.setWidgetResizable(True); area.setFrameShape(QScrollArea.Shape.NoFrame)
             lay.addWidget(area, 1)
             self.resize(uiscale.px(660), uiscale.px(720))
         else:
-            lay.addLayout(form)
+            lay.addLayout(body_lay)
         live_row = QHBoxLayout(); live_row.addWidget(self.live); live_row.addWidget(self.busy, 1)
         small_row = QHBoxLayout(); small_row.addWidget(self.small); small_row.addWidget(self.small_pct)
         small_row.addWidget(QLabel("of the selection / image")); small_row.addStretch(1)
@@ -236,7 +258,23 @@ class EffectDialog(QDialog):
         lay.addWidget(bb)
         self.timer = QTimer(self, singleShot=True, interval=120)
         self.timer.timeout.connect(self._preview)
-        self._changed()
+        if starting_fresh and self.preset_cb is not None:
+            self.preset_cb.blockSignals(True); self.preset_cb.setCurrentText(eff.default_preset); self.preset_cb.blockSignals(False)
+            self.timer.start()  # not _changed(): that would flip the box back to "(custom)"
+        else:
+            self._changed()
+
+    def _advanced_changed(self) -> int:
+        """How many of the folded settings differ from their defaults."""
+        return sum(1 for k, r in self.rows.items() if r.p.advanced and r.value() != r.p.default)
+
+    def _update_adv_label(self):
+        n = sum(1 for r in self.rows.values() if r.p.advanced); c = self._advanced_changed()
+        self.adv_toggle.setText(f"Advanced settings ({n}" + (f", {c} changed from default)" if c else ")"))
+        self.adv_toggle.setArrowType(Qt.ArrowType.DownArrow if self.adv_toggle.isChecked() else Qt.ArrowType.RightArrow)
+
+    def _show_advanced(self, on):
+        self.adv_box.setVisible(on); self._update_adv_label()
 
     def _apply_preset(self, i):
         if i == 0:
@@ -248,6 +286,8 @@ class EffectDialog(QDialog):
                 r.set_value(vals[k])
         finally:
             self._applying = False
+        if self.adv_toggle is not None:
+            self._update_adv_label()
         self.timer.start()  # not _changed(): that would flip the preset box back to "(custom)"
 
     def _save_small(self):
@@ -273,6 +313,8 @@ class EffectDialog(QDialog):
     def _changed(self, *_):
         if self.preset_cb is not None and not self._applying and self.preset_cb.currentIndex() != 0:
             self.preset_cb.blockSignals(True); self.preset_cb.setCurrentIndex(0); self.preset_cb.blockSignals(False)
+        if self.adv_toggle is not None:
+            self._update_adv_label()
         self.timer.start()
 
     def _preview(self):
