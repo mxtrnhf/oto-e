@@ -187,7 +187,7 @@ class Document:
         self.original = self.live
         self._reset_history()
         self.size = (0, 0)  # w, h
-        self.path: Path | None = None  # where Save writes to
+        self.path: Path | None = None  # the .otoe project Save writes to
         self.source_name = ""
         self.mode = INTERLEAVED
         self.fmt = U8
@@ -222,16 +222,12 @@ class Document:
         self.path = None  # first Save always asks, so the source is never overwritten by accident
         self.dirty = False
 
-    def save(self, path: str, adopt: bool = True, options: dict | None = None):
-        """Write the image. `adopt`: make `path` the document's file and mark it saved (Save, Save As);
-        False just exports a copy and leaves the document as it was. `options`: the format's settings
-        (see exportopts); omitted ones take their defaults."""
+    def export(self, path: str, options: dict | None = None):
+        """Write the current picture as an image file. `options`: the format's settings (see exportopts);
+        omitted ones take their defaults. The document itself is untouched; see project.py for saving the session."""
         w, h = self.size
         im = Image.fromarray(self.pixels.reshape(h, w, 3), "RGB")
         im.save(path, **exportopts.pillow_kwargs(exportopts.kind(path), options))
-        if adopt:
-            self.path = Path(path)
-            self.dirty = False
 
     # ---- editing
     def stream(self, pixels: np.ndarray | None = None) -> np.ndarray:

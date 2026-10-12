@@ -85,8 +85,8 @@ def controls_sections(c: Colors) -> list[Section]:
                     "<p>C does nothing while an effect window is open (and not in the search box). To compare an effect you are still tuning, tick and "
                     "untick <b>Live preview</b> in its window instead.</p>"),
             Section("opening", "Opening files",
-                    "<p>Press <b>Ctrl+O</b> or drop an image file on the window. Your original file is never overwritten: the first Save always asks where "
-                    "to write.</p>"),
+                    "<p>Press <b>Ctrl+O</b> or drop an image or an <b>.otoe</b> project on the window. Your original image is never overwritten: "
+                    "Save writes a project file, and only Export writes an image.</p>"),
         ]),
         Section("wave", "Waveform and spectrogram",
                 "<p>The bottom panel draws the picture's data as sound. The <b>View</b> box in the toolbar switches between Waveform, Spectrogram and Both. "
@@ -180,11 +180,12 @@ def controls_sections(c: Colors) -> list[Section]:
                 (k("µ-law"), "A telephone-audio encoding: each byte is a logarithmically scaled sample."),
             ], c, ("Format", "How a byte is read"), ("30%", "70%"))),
         ]),
-        Section("saving", "Saving and exporting", "<p>Oto-e never overwrites your original unless you choose that file.</p>", [
+        Section("saving", "Saving and exporting", "<p>Save keeps your whole session in a <b>.otoe</b> project: the original picture and every step of the history, branches included. "
+                                               "Export writes the picture itself as an ordinary image. Oto-e never overwrites your original image.</p>", [
             Section("save-cmds", "Save, Save As, Export", table([
-                (k("Save") + " (Ctrl+S)", "First time it asks where to write. After that it writes to the same file, reusing the last settings for that format."),
-                (k("Save As") + " (Ctrl+Shift+S)", "Always asks for a file and settings. The new file becomes the one you are working on."),
-                (k("Export a copy") + " (Ctrl+E)", "Asks for a file and settings, writes a copy, and leaves your working file and its unsaved-changes mark alone. Handy for dumping variants."),
+                (k("Save") + " (Ctrl+S)", "Saves the project (.otoe). The first time it asks where to put it; after that it writes to the same file."),
+                (k("Save As") + " (Ctrl+Shift+S)", "Always asks where to put the project. The new file becomes the one you are working on."),
+                (k("Export image") + " (Ctrl+E)", "Asks for an image file and its settings and writes the picture as it is now. Your project and its unsaved-changes mark are left alone. Handy for dumping variants."),
                 (k("Revert to Original") + " (File menu)", "Puts the original picture back as a new history step, so you can still jump back."),
             ], c, ("Command", "What it does"), ("30%", "70%"))),
             Section("save-formats", "File formats and their settings", table([
@@ -196,11 +197,11 @@ def controls_sections(c: Colors) -> list[Section]:
                 (k("JPEG 2000"), "Lossless or lossy, and ratio", "Lossless by default"),
                 (k("TGA"), "Compression: none or RLE", "Lossless"),
             ], c, ("Format", "Settings asked for", "Quality"), ("22%", "50%", "28%")) +
-                    "<p>Save As and Export show the settings box and remember your choices per format. Choose a lossless format to keep every pixel of your glitch exactly.</p>"),
+                    "<p>Export shows the settings box and remember your choices per format. Choose a lossless format to keep every pixel of your glitch exactly.</p>"),
         ]),
         Section("keys", "Keyboard shortcuts", table([
             "File",
-            (k("Ctrl+O"), "Open"), (k("Ctrl+S"), "Save"), (k("Ctrl+Shift+S"), "Save As"), (k("Ctrl+E"), "Export a copy"), (k("Ctrl+Q"), "Quit"),
+            (k("Ctrl+O"), "Open"), (k("Ctrl+S"), "Save"), (k("Ctrl+Shift+S"), "Save As"), (k("Ctrl+E"), "Export image"), (k("Ctrl+Q"), "Quit"),
             "Edit",
             (k("Ctrl+Z"), "Undo"), (k("Ctrl+Shift+Z"), "Redo"), (k("Ctrl+C"), "Copy selection as a picture"), (k("Ctrl+Shift+C"), "Copy the whole image as a picture"),
             (k("Ctrl+A"), "Select all"), (k("Ctrl+Shift+A"), "Select none"),

@@ -25,7 +25,7 @@ with sound effects (echo, phaser, bitcrusher, tape ageing, …), and writes the 
   Right-click a step to copy its effect and settings as a one-line recipe; import one with Import recipe… in the history panel.
 - **Randomize.** One key applies a random effect with random settings; undo it or try another.
 - **Compare** with the original at any moment.
-- **Save and export** to PNG, JPEG, WebP, BMP, TIFF, JPEG 2000 and TGA, with each format's own settings.
+- **Save projects** (`.otoe`: original plus full history) and **export** to PNG, JPEG, WebP, BMP, TIFF, JPEG 2000 and TGA, with each format's own settings.
 - **Built-in guide.** Help → Controls (F1) is a searchable guide, Help → Effect reference lists every effect and setting, and
   every control has a tooltip.
 - **Your text size.** View → Text size scales the font of the whole program from 85 % to 175 %.
@@ -57,7 +57,7 @@ On some Linux distros you may need `python3-venv` and the Qt xcb libraries (`lib
 3. **Double-click an effect** in the list on the right, for example *Echo* or *Phaser*.
 4. **Drag the sliders.** The picture changes live. Press **OK** to keep it, or Cancel.
 5. **Try your luck** with Randomize (Ctrl+Shift+R). Undo (Ctrl+Z) anything you don't like, or click a step in the history on the left.
-6. **Save** with Save As (Ctrl+Shift+S), or Export a copy (Ctrl+E) to keep working on the same file.
+6. **Save** (Ctrl+S) your session as a `.otoe` project to carry on later, or **Export image** (Ctrl+E) to write the picture as PNG, JPEG and so on.
 
 ## How it works
 
@@ -135,16 +135,17 @@ preview; untick *Live preview* if it feels slow.
 
 ## Saving and exporting
 
-Oto-e never overwrites your original unless you choose that file.
+Save keeps the whole session (original picture and every history step, branches included) in a `.otoe` project, which opens exactly as you left it.
+Export writes the picture as an ordinary image. Oto-e never overwrites your original image.
 
 | Command | What it does |
 |---|---|
-| **Save** (Ctrl+S) | The first time it asks where to write. After that it writes to the same file, reusing the last settings for that format. |
-| **Save As** (Ctrl+Shift+S) | Always asks for a file and its settings. The new file becomes the one you are working on. |
-| **Export a copy** (Ctrl+E) | Writes a copy and leaves your working file alone. Handy for dumping variants. |
+| **Save** (Ctrl+S) | Saves the project (`.otoe`). The first time it asks where; after that it writes to the same file. |
+| **Save As** (Ctrl+Shift+S) | Always asks where to put the project. The new file becomes the one you are working on. |
+| **Export image** (Ctrl+E) | Writes the picture as an image file, with that format's settings. Your project is left alone. Handy for dumping variants. |
 | **Revert to Original** | Puts the original back as a new history step, so you can still jump back. |
 
-Formats: **PNG**, **JPEG**, **WebP**, **BMP**, **TIFF**, **JPEG 2000** and **TGA**. Save As and Export ask for the format's settings
+Formats: **PNG**, **JPEG**, **WebP**, **BMP**, **TIFF**, **JPEG 2000** and **TGA**. Export asks for the format's settings
 (JPEG quality, colour detail and progressive loading; lossless or lossy WebP and JPEG 2000; PNG, TIFF and TGA compression) and remember
 them. For an exact copy of your glitch choose a lossless setting: PNG, BMP, TIFF, TGA, or lossless WebP or JPEG 2000.
 

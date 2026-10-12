@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, Q
                              QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter, QTextBrowser, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                              QWidget)
 
-from . import effects, exportopts, recipe, steptext, uiscale
+from . import effects, exportopts, project, recipe, steptext, uiscale
 from .helptext import help_html
 from .helpdoc import controls_sections, reference_sections
 from .helpview import HelpDialog
@@ -24,7 +24,7 @@ from .effects import SR, Effect, Param
 from .history import HistoryPanel
 from .views import ImageView, WaveformView
 
-OPEN_FILTER = "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp *.gif *.ppm);;All files (*)"
+OPEN_FILTER = "Images and projects (*.otoe *.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp *.gif *.ppm);;All files (*)"
 SAVE_FORMATS = [("PNG", ".png"), ("JPEG", ".jpg .jpeg"), ("WebP", ".webp"), ("BMP", ".bmp"), ("TIFF", ".tif .tiff"),
                 ("JPEG 2000", ".jp2"), ("TGA", ".tga")]
 SAVE_FILTER = ";;".join(f"{n} ({' '.join('*' + e for e in exts.split())})" for n, exts in SAVE_FORMATS)
@@ -436,7 +436,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         self.a_save = self._act(m, "&Save", self.save, QKeySequence.StandardKey.Save)
         self._act(m, "Save &As…", self.save_as, "Ctrl+Shift+S")
-        self._act(m, "&Export a copy…", self.export, "Ctrl+E")
+        self._act(m, "&Export image…", self.export, "Ctrl+E")
         m.addSeparator()
         self.a_revert = self._act(m, "Re&vert to Original", self.revert)
         m.addSeparator()
@@ -826,42 +826,59 @@ class MainWindow(QMainWindow):
     def open_path(self, p, confirmed=False):
         if not confirmed and not self._confirm_discard():
             return
+        is_project = Path(p).suffix.lower() == project.EXT
         try:
-            self.doc.open(p)
+            project.load(self.doc, p) if is_project else self.doc.open(p)
         except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, "Can't open image", f"{p}\n\n{e}"); return
+            QMessageBox.critical(self, "Can't open project" if is_project else "Can't open image", f"{p}\n\n{e}"); return
         self.settings.setValue("lastdir", str(Path(p).parent))
         self.sel = None
+        if is_project:  # the project remembers how its bytes were being read
+            self.mode_cb.blockSignals(True); self.mode_cb.setCurrentIndex(self.doc.mode); self.mode_cb.blockSignals(False)
+            self.fmt_cb.blockSignals(True); self.fmt_cb.setCurrentIndex(self.doc.fmt); self.fmt_cb.blockSignals(False)
+            self.fmt_actions[self.doc.fmt].setChecked(True)
         self.image_view.fit()
         self._refresh(reset=True)
 
-    def _ask_path(self, title) -> str | None:
+    def _ask_image_path(self, title) -> str | None:
         d = self.doc
-        base = d.path or (Path(self.settings.value("lastdir", str(Path.home()))) / (Path(d.source_name).stem + "_bent.png"))
+        base = Path(self.settings.value("lastdir", str(Path.home()))) / (Path(d.source_name).stem + "_bent.png")
         p, flt = QFileDialog.getSaveFileName(self, title, str(base), SAVE_FILTER)
         if p and not Path(p).suffix:
             p += next(exts.split()[0] for n, exts in SAVE_FORMATS if flt.startswith(n + " ("))
         return p or None
 
-    def _write(self, p, adopt=True, options=None):
+    def _write_image(self, p, options=None):
         try:
-            self.doc.save(p, adopt, options)
+            self.doc.export(p, options)
         except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, "Can't save", str(e)); return False
-        self.statusBar().showMessage(f"{'Saved' if adopt else 'Exported'} {p}", 4000)
+            QMessageBox.critical(self, "Can't export", str(e)); return
+        self.statusBar().showMessage(f"Exported {p}", 4000)
+
+    def _write_project(self, p):
+        try:
+            project.save(self.doc, p)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Can't save", str(e)); return
+        self.doc.path = Path(p); self.doc.dirty = False
+        self.settings.setValue("lastdir", str(Path(p).parent))
+        self.statusBar().showMessage(f"Saved {p}", 4000)
         self._refresh()
-        return True
 
     def save(self):
         if not self.doc.loaded:
             return
         if self.doc.path is None:
             return self.save_as()
-        self._write(str(self.doc.path), True, self._export_options(str(self.doc.path), ask=False))  # plain Save reuses the last settings
+        self._write_project(str(self.doc.path))
 
     def save_as(self):
-        if self.doc.loaded and (p := self._ask_path("Save As")) and (opts := self._export_options(p)) is not None:
-            self._write(p, True, opts)
+        if not self.doc.loaded:
+            return
+        base = self.doc.path or Path(self.settings.value("lastdir", str(Path.home()))) / (Path(self.doc.source_name).stem + project.EXT)
+        p, _ = QFileDialog.getSaveFileName(self, "Save project", str(base), f"Oto-e project (*{project.EXT})")
+        if p:
+            self._write_project(p if Path(p).suffix.lower() == project.EXT else p + project.EXT)
 
     def _export_options(self, path: str, ask: bool = True) -> dict | None:
         """The settings to write `path` with: last used for its format, asked for first if `ask`. None = cancelled."""
@@ -881,9 +898,9 @@ class MainWindow(QMainWindow):
         return dlg.values()
 
     def export(self):
-        """Write a copy and carry on: the document keeps its file and its unsaved-changes mark."""
-        if self.doc.loaded and (p := self._ask_path("Export a copy")) and (opts := self._export_options(p)) is not None:
-            self._write(p, False, opts)
+        """Write the picture as an image file. The project, its file and its unsaved-changes mark are left alone."""
+        if self.doc.loaded and (p := self._ask_image_path("Export image")) and (opts := self._export_options(p)) is not None:
+            self._write_image(p, opts)
 
     def revert(self):
         if self.doc.loaded:
