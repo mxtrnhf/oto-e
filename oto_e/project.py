@@ -106,8 +106,8 @@ def save(doc: Document, path: str):
     doc.original_png = write(snapshot(doc), path)
 
 
-def load(doc: Document, path: str):
-    """Replace `doc`'s picture and history with the project at `path`. `doc` is untouched if the file is bad."""
+def read(path: str) -> dict:
+    """Parse the project at `path` into the state `install` puts on a document. Touches no document, so it can run on any thread."""
     try:
         with zipfile.ZipFile(path) as z:
             m = json.loads(z.read("history.json"))
@@ -139,8 +139,19 @@ def load(doc: Document, path: str):
         raise
     except (OSError, KeyError, IndexError, TypeError, ValueError, zipfile.BadZipFile, Image.UnidentifiedImageError) as e:
         raise ProjectError(f"This is not a readable Oto-e project ({e})") from None
-    doc.size, doc.original, doc.live = size, original, live
-    doc.nodes, doc.root, doc.node, doc._next_id = nodes, root, cur, next_id
-    doc.mode, doc.fmt, doc.source_name = mode, fmt, name
+    return {"size": size, "original": original, "live": live, "nodes": nodes, "root": root, "node": cur, "next_id": next_id,
+            "mode": mode, "fmt": fmt, "name": name, "path": Path(path)}
+
+
+def install(doc: Document, s: dict):
+    """Replace `doc`'s picture and history with a state from `read`."""
+    doc.size, doc.original, doc.live = s["size"], s["original"], s["live"]
+    doc.nodes, doc.root, doc.node, doc._next_id = s["nodes"], s["root"], s["node"], s["next_id"]
+    doc.mode, doc.fmt, doc.source_name = s["mode"], s["fmt"], s["name"]
     doc.original_png = None
-    doc.path = Path(path); doc.dirty = False
+    doc.path = s["path"]; doc.dirty = False
+
+
+def load(doc: Document, path: str):
+    """read + install. `doc` is untouched if the file is bad."""
+    install(doc, read(path))

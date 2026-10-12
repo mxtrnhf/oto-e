@@ -19,7 +19,8 @@ from .helptext import help_html
 from .helpdoc import controls_sections, reference_sections
 from .helpview import HelpDialog
 from .tips import TooltipStyler, param_tip, shortcut_tip, tip
-from .core import BYTES_PER_SAMPLE, FORMAT_NAMES, INTERLEAVED, MODE_NAMES, Document, Rect, norm_sel, run_as_rect, run_rows
+from .core import (BYTES_PER_SAMPLE, FORMAT_NAMES, INTERLEAVED, MODE_NAMES, Document, Rect, norm_sel, read_image, run_as_rect, run_rows,
+                   write_image)
 from .effects import SR, Effect, Param
 from .history import HistoryPanel
 from .views import ImageView, WaveformView
@@ -297,6 +298,25 @@ class _SaveTask(QRunnable):
         self.signals.done.emit(self.snap, None)
 
 
+class _JobSignals(QObject):
+    done = pyqtSignal(int, object, object)  # job id, result, error message (None on success)
+
+
+class _Job(QRunnable):
+    """Runs `fn()` off the UI thread and reports back through `signals`."""
+
+    def __init__(self, job_id, fn, signals):
+        super().__init__()
+        self.job_id, self.fn, self.signals = job_id, fn, signals
+
+    def run(self):
+        try:
+            result = self.fn()
+        except Exception as e:  # noqa: BLE001
+            self.signals.done.emit(self.job_id, None, str(e) or type(e).__name__); return
+        self.signals.done.emit(self.job_id, result, None)
+
+
 class _PreviewSignals(QObject):
     done = pyqtSignal(object, object)  # request key, resulting pixels (None if the effect failed)
 
@@ -334,6 +354,12 @@ class MainWindow(QMainWindow):
         self._saving = None  # (previous path, previous dirty flag) while a project is being written
         self._save_pool = QThreadPool(self); self._save_pool.setMaxThreadCount(1)
         self._save_signals = _SaveSignals(); self._save_signals.done.connect(self._save_done)
+        self._jobs: dict[int, tuple] = {}  # running background jobs: id -> (on success, on error)
+        self._job_ids = 0
+        self._busy = None  # id of the job that has the window locked (applying an effect, opening a file), if any
+        self._job_pool = QThreadPool(self); self._job_pool.setMaxThreadCount(3)
+        self._job_signals = _JobSignals(); self._job_signals.done.connect(self._job_done)
+        self._esc = QShortcut(QKeySequence("Esc"), self, activated=self._cancel_busy); self._esc.setEnabled(False)  # only while a job locks the window
         self._pv_pool = QThreadPool(self); self._pv_pool.setMaxThreadCount(1)  # one preview at a time
         self._pv_signals = _PreviewSignals(); self._pv_signals.done.connect(self._on_preview_done)
         self._pv_busy = False; self._pv_latest = None; self._pv_cache = None
@@ -846,23 +872,30 @@ class MainWindow(QMainWindow):
             self.open_path(p, confirmed=True)
 
     def open_path(self, p, confirmed=False):
-        if self._saving:
-            self.statusBar().showMessage("Wait for the save to finish first", 4000); return
+        if self._saving or self._busy is not None:
+            self.statusBar().showMessage("Wait for the current operation to finish first", 4000); return
         if not confirmed and not self._confirm_discard():
             return
         is_project = Path(p).suffix.lower() == project.EXT
-        try:
-            project.load(self.doc, p) if is_project else self.doc.open(p)
-        except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, "Can't open project" if is_project else "Can't open image", f"{p}\n\n{e}"); return
-        self.settings.setValue("lastdir", str(Path(p).parent))
-        self.sel = None
-        if is_project:  # the project remembers how its bytes were being read
-            self.mode_cb.blockSignals(True); self.mode_cb.setCurrentIndex(self.doc.mode); self.mode_cb.blockSignals(False)
-            self.fmt_cb.blockSignals(True); self.fmt_cb.setCurrentIndex(self.doc.fmt); self.fmt_cb.blockSignals(False)
-            self.fmt_actions[self.doc.fmt].setChecked(True)
-        self.image_view.fit()
-        self._refresh(reset=True)
+
+        def ok(result):
+            if is_project:
+                project.install(self.doc, result)
+            else:
+                self.doc.install_image(*result, Path(p).name)
+            self.settings.setValue("lastdir", str(Path(p).parent))
+            self.sel = None
+            if is_project:  # the project remembers how its bytes were being read
+                self.mode_cb.blockSignals(True); self.mode_cb.setCurrentIndex(self.doc.mode); self.mode_cb.blockSignals(False)
+                self.fmt_cb.blockSignals(True); self.fmt_cb.setCurrentIndex(self.doc.fmt); self.fmt_cb.blockSignals(False)
+                self.fmt_actions[self.doc.fmt].setChecked(True)
+            self.image_view.fit()
+            self._refresh(reset=True)
+            self.statusBar().showMessage(f"Opened {p}", 3000)
+
+        self._run_job((lambda: project.read(p)) if is_project else (lambda: read_image(p)), ok,
+                      lambda msg: QMessageBox.critical(self, "Can't open project" if is_project else "Can't open image", f"{p}\n\n{msg}"),
+                      lock=f"Opening {Path(p).name}…")
 
     def _ask_image_path(self, title) -> str | None:
         d = self.doc
@@ -873,11 +906,11 @@ class MainWindow(QMainWindow):
         return p or None
 
     def _write_image(self, p, options=None):
-        try:
-            self.doc.export(p, options)
-        except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, "Can't export", str(e)); return
-        self.statusBar().showMessage(f"Exported {p}", 4000)
+        """Encode a copy of the picture on a worker thread; the window stays free and the project untouched."""
+        px, size = self.doc.pixels.copy(), self.doc.size
+        self.statusBar().showMessage(f"Exporting {p}…")
+        self._run_job(lambda: write_image(px, size, p, options), lambda _: self.statusBar().showMessage(f"Exported {p}", 4000),
+                      lambda msg: QMessageBox.critical(self, "Can't export", msg))
 
     def _write_project(self, p):
         """Snapshot the document now (fast) and write the file on a worker thread, so a big project never freezes the window."""
@@ -946,9 +979,9 @@ class MainWindow(QMainWindow):
             self.doc.revert(); self._refresh()
 
     def closeEvent(self, e):
-        if self._saving:  # let the write finish rather than leave a half-saved project
-            self.statusBar().showMessage("Finishing the save…"); QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            self._save_pool.waitForDone(); QApplication.restoreOverrideCursor()
+        if self._saving or self._jobs:  # let writes finish rather than leave a half-written file
+            self.statusBar().showMessage("Finishing…"); QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            self._save_pool.waitForDone(); self._job_pool.waitForDone(); QApplication.restoreOverrideCursor()
             QApplication.processEvents()
         if self._confirm_discard():
             e.accept()
@@ -993,6 +1026,50 @@ class MainWindow(QMainWindow):
             return
         self.run_effect(effects.by_name(item.data(0, Qt.ItemDataRole.UserRole)))
 
+    def _locked_widgets(self):
+        return [self.menuBar(), self.toolbar, self.toolbar2, self.history, self.tree, self.search, self.apply_btn, self.again_btn, self.rand_btn, self.reroll_btn]
+
+    def _run_job(self, fn, on_ok, on_error=None, lock: str | None = None):
+        """Run `fn()` on a worker thread, then `on_ok(result)` (or `on_error(message)`) on the UI thread.
+        `lock`: keep the window locked, showing this text, until it finishes. Esc gives up on it (the thread itself cannot be
+        interrupted and finishes in the background; its result is dropped)."""
+        self._job_ids += 1; jid = self._job_ids
+        self._jobs[jid] = (on_ok, on_error)
+        if lock:
+            self._busy = jid
+            for w in self._locked_widgets():
+                w.setEnabled(False)
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor); self._esc.setEnabled(True)
+            self.statusBar().showMessage(f"{lock}  (Esc to give up)")
+        self._job_pool.start(_Job(jid, fn, self._job_signals))
+        return jid
+
+    def _unlock(self, jid):
+        if self._busy == jid:
+            self._busy = None; self._esc.setEnabled(False)
+            QApplication.restoreOverrideCursor()
+            for w in self._locked_widgets():
+                w.setEnabled(True)
+
+    def _job_done(self, jid, result, error):
+        cbs = self._jobs.pop(jid, None)
+        self._unlock(jid)
+        if cbs is None:  # given up on
+            return
+        on_ok, on_error = cbs
+        if error is not None:
+            if on_error:
+                on_error(error)
+        else:
+            on_ok(result)
+
+    def _cancel_busy(self):
+        if self._busy is not None:
+            jid = self._busy
+            self._jobs.pop(jid, None); self._unlock(jid)
+            self.statusBar().showMessage("Gave up", 4000)
+            self._refresh()
+
     def run_effect(self, eff: Effect, initial: dict | None = None, extra: dict | None = None, on_cancel=None):
         if not self.doc.loaded:
             self.statusBar().showMessage("Open an image first", 3000); return
@@ -1005,7 +1082,7 @@ class MainWindow(QMainWindow):
             self.request_preview(eff, vals)
 
         # Non-modal: a modal dialog makes the window manager dim the main window, hiding the live preview.
-        locked = [self.menuBar(), self.toolbar, self.toolbar2, self.history, self.tree, self.search, self.apply_btn, self.again_btn, self.rand_btn, self.reroll_btn]
+        locked = self._locked_widgets()
         dlg = EffectDialog(eff, initial if initial is not None else self.last_params.get(eff.name, {}), preview, self)
         dlg.setWindowModality(Qt.WindowModality.NonModal)
         self._dlg = dlg
@@ -1195,24 +1272,32 @@ class MainWindow(QMainWindow):
         if getattr(self, "_dlg", None):
             self._dlg.set_busy(busy)
 
-    def _apply(self, eff, params, random=False, extra=None):
+    def _apply(self, eff, params, random=False, extra=None, then=None):
+        """Apply `eff` to the current selection and add it to the history. If the preview already computed this exact result it is
+        used at once; otherwise the effect runs on a worker thread with the window locked (a heavy one can take a minute).
+        `then()` runs after the step has been added."""
         cached = self._pv_cache
         self._pv_cache = None
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            if cached and cached[0] == self._pv_key(eff, params):
-                px = cached[1]  # the preview already is the result
-            else:
-                px = self.doc.compute(eff, params, self.sel)
-        except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, eff.name, f"Effect failed: {e}"); return
-        finally:
-            QApplication.restoreOverrideCursor()
+        d = self.doc
         sel = norm_sel(self.sel)
-        self.doc.commit(px, {"name": eff.name, "params": params, "sel": sel, "mode": self.doc.mode, "fmt": self.doc.fmt, "random": random, **(extra or {})})
-        self.last_effect = (eff, params)
-        self._refresh()
-        self.statusBar().showMessage(f"Applied {eff.name}", 3000)
+        info = {"name": eff.name, "params": params, "sel": sel, "mode": d.mode, "fmt": d.fmt, "random": random, **(extra or {})}
+
+        def finish(px):
+            if d.node is not at or self.doc is not d:  # the history moved on while we were computing
+                self.statusBar().showMessage(f"{eff.name} was dropped: the picture changed meanwhile", 5000); return
+            d.commit(px, info)
+            self.last_effect = (eff, params)
+            self._refresh()
+            self.statusBar().showMessage(f"Applied {eff.name}", 3000)
+            if then:
+                then()
+
+        at = d.node
+        if cached and cached[0] == self._pv_key(eff, params):
+            finish(cached[1]); return  # the preview already is the result
+        base, mode, fmt = d.live.copy(), d.mode, d.fmt
+        self._run_job(lambda: d.compute(eff, params, sel, base=base, mode=mode, fmt=fmt), finish,
+                      lambda msg: QMessageBox.critical(self, eff.name, f"Effect failed: {msg}"), lock=f"Applying {eff.name}…")
 
     def _needs_rect(self, eff) -> bool:
         """True if `eff` is a picture effect but the selection is a run, which has no picture shape
@@ -1243,10 +1328,11 @@ class MainWindow(QMainWindow):
         if not self.doc.loaded:
             self.statusBar().showMessage("Open an image first", 3000); return
         eff, params = effects.random_effect(allow_image=not any(self._needs_rect(e) for e in effects.EFFECTS if e.domain == "image"))
-        self._apply(eff, params, random=True)
-        self._rand_node = self.doc.node  # lets reroll() tell whether the last edit was a randomize
-        vals = ", ".join(f"{k}={v}" for k, v in params.items())
-        self.statusBar().showMessage(f"Randomized: {eff.name}" + (f" ({vals})" if vals else ""), 8000)
+        def then():
+            self._rand_node = self.doc.node  # lets reroll() tell whether the last edit was a randomize
+            vals = ", ".join(f"{k}={v}" for k, v in params.items())
+            self.statusBar().showMessage(f"Randomized: {eff.name}" + (f" ({vals})" if vals else ""), 8000)
+        self._apply(eff, params, random=True, then=then)
 
     def reroll(self):
         """Step back from the last randomize (it stays in History) and randomize again."""

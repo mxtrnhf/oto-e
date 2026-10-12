@@ -153,6 +153,25 @@ def write_range(px: np.ndarray, mode: int, fmt: int, a: int, x: np.ndarray):
     write_bytes(px, mode, a * BYTES_PER_SAMPLE[fmt], encode(x, fmt))
 
 
+def read_image(path: str) -> tuple[np.ndarray, tuple[int, int]]:
+    """Decode an image file to flat RGB bytes and (w, h). Touches no document, so it can run on any thread."""
+    with Image.open(path) as im:
+        im = ImageOps.exif_transpose(im)
+        if im.mode in ("RGBA", "LA", "P"):
+            im = im.convert("RGBA")
+            bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
+            im = Image.alpha_composite(bg, im)
+        im = im.convert("RGB")
+        return np.asarray(im, dtype=np.uint8).reshape(-1).copy(), im.size
+
+
+def write_image(px: np.ndarray, size: tuple[int, int], path: str, options: dict | None = None):
+    """Write flat RGB bytes as an image file. `options`: the format's settings (see exportopts); omitted ones take their defaults.
+    Touches no document, so it can run on any thread (give it a copy of the pixels). See project.py for saving the session."""
+    w, h = size
+    Image.fromarray(px.reshape(h, w, 3), "RGB").save(path, **exportopts.pillow_kwargs(exportopts.kind(path), options))
+
+
 class Step:
     """The bytes of [lo, lo+len(data)) that are *not* currently in the live image for one history edge.
 
@@ -208,27 +227,21 @@ class Document:
         return self.pixels.size > 0
 
     def open(self, path: str):
-        with Image.open(path) as im:
-            im = ImageOps.exif_transpose(im)
-            if im.mode in ("RGBA", "LA", "P"):
-                im = im.convert("RGBA")
-                bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
-                im = Image.alpha_composite(bg, im)
-            im = im.convert("RGB")
-            self.size = im.size
-            px = np.asarray(im, dtype=np.uint8).reshape(-1).copy()
+        px, size = read_image(path)
+        self.install_image(px, size, Path(path).name)
+
+    def install_image(self, px: np.ndarray, size: tuple[int, int], name: str):
+        """Make a freshly decoded picture the document (with an empty history)."""
+        self.size = size
         self.original = px.copy(); self.original_png = None
         self.live = px; self._reset_history()
-        self.source_name = Path(path).name
+        self.source_name = name
         self.path = None  # first Save always asks, so the source is never overwritten by accident
         self.dirty = False
 
     def export(self, path: str, options: dict | None = None):
-        """Write the current picture as an image file. `options`: the format's settings (see exportopts);
-        omitted ones take their defaults. The document itself is untouched; see project.py for saving the session."""
-        w, h = self.size
-        im = Image.fromarray(self.pixels.reshape(h, w, 3), "RGB")
-        im.save(path, **exportopts.pillow_kwargs(exportopts.kind(path), options))
+        """Write the current picture as an image file; see write_image."""
+        write_image(self.pixels, self.size, path, options)
 
     # ---- editing
     def stream(self, pixels: np.ndarray | None = None) -> np.ndarray:
