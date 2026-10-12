@@ -221,7 +221,7 @@ HELP: dict[str, tuple[str, dict[str, str]]] = {
                     {"quality": "JPEG quality. 1 = a mess, 100 = nearly clean.",
                      "flips": "How many bytes of the compressed picture data are replaced with random values. 0 = none.",
                      "seed": "Picks which bytes are damaged; the same seed gives the same result."}),
-    "JPEG Cruncher": ("Makes the picture look like it was recovered from an abandoned Soviet computer in Mongolia.\nIt is saved as a JPEG and reloaded over and over, like a picture that has been re-saved hundreds of times: blocky, smeared, with colour bleeding and ringing halos around edges. More generations and lower quality push it toward barely recognisable.",
+    "JPEG Cruncher": ("Makes the picture look like it was recovered from an abandoned Soviet computer in Mongolia.",
                       {"gens": "How many times it is saved and reloaded. Each pass adds a little more damage, so the picture decays gradually instead of all at once. More generations take longer.",
                        "quality": "JPEG quality of every save. 85–95 = a slow, subtle decay; 40–60 = visible blocks within a few passes; below 20 = a mess.",
                        "chroma": "How much colour detail each save keeps. Quarter (4:2:0) is what most real JPEGs use and makes colours bleed past edges.",
