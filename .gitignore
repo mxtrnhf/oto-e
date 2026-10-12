@@ -2,3 +2,5 @@
 __pycache__/
 *.pyc
 databender_orig
+dist/
+build/
