@@ -140,9 +140,11 @@ Export writes the picture as an ordinary image. Oto-e never overwrites your orig
 
 | Command | What it does |
 |---|---|
-| **Save** (Ctrl+S) | Saves the project (`.otoe`). The first time it asks where; after that it writes to the same file. |
-| **Save As** (Ctrl+Shift+S) | Always asks where to put the project. The new file becomes the one you are working on. |
-| **Export image** (Ctrl+E) | Writes the picture as an image file, with that format's settings. Your project is left alone. Handy for dumping variants. |
+| **Save Project** (Ctrl+S) | Saves the project (`.otoe`). The first time it asks where; after that it writes to the same file. |
+| **Save Project As** (Ctrl+Shift+S) | Always asks where to put the project. The new file becomes the one you are working on. |
+| **Export image** (Ctrl+E) | Writes the picture as an image file, with that format's settings. Your project is left alone. |
+| **Export Again** (Ctrl+Alt+E) | Writes it again beside your last export as the next numbered file, with the same settings. Handy for dumping variants. |
+| **Open Recent** | Your last ten files. Oto-e also keeps a recovery copy of unsaved work and offers it back if it closes unexpectedly. |
 | **Revert to Original** | Puts the original back as a new history step, so you can still jump back. |
 
 Formats: **PNG**, **JPEG**, **WebP**, **BMP**, **TIFF**, **JPEG 2000** and **TGA**. Export asks for the format's settings

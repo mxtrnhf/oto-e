@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 import traceback
@@ -139,7 +140,7 @@ class ParamRow(QWidget):
         self.w = QSpinBox() if p.integer else QDoubleSpinBox()
         self.w.setRange(p.min, p.max); self.w.setSuffix(p.suffix)
         if not p.integer:
-            self.w.setSingleStep(p.step); self.w.setDecimals(effects.DECIMALS)
+            self.w.setSingleStep(p.step); self.w.setDecimals(self._decimals(p))
         else:
             self.w.setSingleStep(int(p.step))
         self.w.setValue(value); self.w.setMinimumWidth(uiscale.px(110))
@@ -154,6 +155,15 @@ class ParamRow(QWidget):
             lay.addWidget(self.slow)
             self.w.valueChanged.connect(lambda v: self.slow.setVisible(v > p.slow_above))
             self.slow.setVisible(value > p.slow_above)
+
+    @staticmethod
+    def _decimals(p: Param) -> int:
+        """As many decimals as the step needs (0.25 -> 2, 0.5 -> 1), at least 1 and at most the program-wide precision."""
+        s = f"{p.step:.10g}"
+        dec = min(max(len(s.split(".")[1]) if "." in s else 0, 1), effects.DECIMALS)
+        while dec < effects.DECIMALS and abs(round(p.default, dec) - p.default) > 1e-9:  # never display (and so store) a default more coarsely than it is
+            dec += 1
+        return dec
 
     def _sync_slider(self):
         span = self.p.max - self.p.min
@@ -187,8 +197,10 @@ class EffectDialog(QDialog):
             note = QLabel("This effect has no settings. The picture shows the result; press OK to apply it.")
             note.setWordWrap(True); note.setStyleSheet("color: gray"); form.addRow(note)
         starting_fresh = not last and bool(eff.default_preset)  # first time: begin from the effect's own recommended preset
+        self._baseline = {p.key: p.default for p in eff.params}  # what "changed" is measured against: the plain defaults, or the active preset
         if starting_fresh:
-            last = {**{p.key: p.default for p in eff.params}, **eff.presets[eff.default_preset]}
+            last = {**self._baseline, **eff.presets[eff.default_preset]}
+            self._baseline = dict(last)
         adv_form = QFormLayout()
         shown = {"": ""}  # the heading last written to each form
         for p in eff.params:
@@ -244,10 +256,15 @@ class EffectDialog(QDialog):
                 ib.clicked.connect(lambda: InfoDialog(eff.name, help_html(eff), self).show())
                 pl.addWidget(ib)
             lay.addLayout(pl)
+        if eff.name in effects.SLOW:
+            slow = QLabel("Takes several seconds on a large picture. The small-scale preview (below) keeps the sliders responsive.")
+            slow.setWordWrap(True); slow.setStyleSheet("color: #c27c0e"); lay.addWidget(slow)
+        self._area = None
         if len(eff.params) > 10:  # long forms scroll instead of growing past the screen
             body = QWidget(); body.setLayout(body_lay)
             area = QScrollArea(); area.setWidget(body); area.setWidgetResizable(True); area.setFrameShape(QScrollArea.Shape.NoFrame)
             lay.addWidget(area, 1)
+            self._area, self._body = area, body
             self.resize(uiscale.px(660), uiscale.px(720))
         else:
             lay.addLayout(body_lay)
@@ -260,28 +277,39 @@ class EffectDialog(QDialog):
         lay.addWidget(bb)
         self.timer = QTimer(self, singleShot=True, interval=120)
         self.timer.timeout.connect(self._preview)
+        self._fit_height()
         if starting_fresh and self.preset_cb is not None:
             self.preset_cb.blockSignals(True); self.preset_cb.setCurrentText(eff.default_preset); self.preset_cb.blockSignals(False)
             self.timer.start()  # not _changed(): that would flip the box back to "(custom)"
         else:
             self._changed()
 
+    def _fit_height(self):
+        """Shrink the dialog to its contents (up to the usual height), so folding Advanced does not leave a blank gap."""
+        if self._area is None:
+            return
+        other = self.layout().sizeHint().height() - self._area.sizeHint().height()
+        want = self._body.sizeHint().height() + max(other, 0) + 8
+        self.resize(self.width(), min(want, uiscale.px(720)))
+
     def _advanced_changed(self) -> int:
         """How many of the folded settings differ from their defaults."""
-        return sum(1 for k, r in self.rows.items() if r.p.advanced and r.value() != r.p.default)
+        return sum(1 for k, r in self.rows.items() if r.p.advanced and r.value() != self._baseline[k])
 
     def _update_adv_label(self):
         n = sum(1 for r in self.rows.values() if r.p.advanced); c = self._advanced_changed()
-        self.adv_toggle.setText(f"Advanced settings ({n}" + (f", {c} changed from default)" if c else ")"))
+        self.adv_toggle.setText(f"Advanced settings ({n}" + (f", {c} changed)" if c else ")"))
         self.adv_toggle.setArrowType(Qt.ArrowType.DownArrow if self.adv_toggle.isChecked() else Qt.ArrowType.RightArrow)
 
     def _show_advanced(self, on):
         self.adv_box.setVisible(on); self._update_adv_label()
+        QTimer.singleShot(0, self._fit_height)
 
     def _apply_preset(self, i):
         if i == 0:
             return
         vals = {**{p.key: p.default for p in self.eff.params}, **self.eff.presets[self.preset_cb.itemText(i)]}
+        self._baseline = dict(vals)
         self._applying = True
         try:
             for k, r in self.rows.items():
@@ -401,6 +429,9 @@ class MainWindow(QMainWindow):
         self._jobs: dict[int, tuple] = {}  # running background jobs: id -> (on success, on error)
         self._job_ids = 0
         self._busy = None  # id of the job that has the window locked (applying an effect, opening a file), if any
+        self._autosaving = False
+        self._autosave_timer = QTimer(self); self._autosave_timer.setInterval(self.AUTOSAVE_MS); self._autosave_timer.timeout.connect(self._autosave); self._autosave_timer.start()
+        self._last_export = None  # (path, options) of the latest export, for Export Again
         self._abandoned: set[int] = set()  # given-up jobs whose threads are still running
         self._busy_timer = QTimer(self); self._busy_timer.setInterval(1000); self._busy_timer.timeout.connect(self._tick_busy)
         self._job_pool = QThreadPool(self); self._job_pool.setMaxThreadCount(3)
@@ -529,9 +560,15 @@ class MainWindow(QMainWindow):
         m = self.menuBar().addMenu("&File")
         self._act(m, "&Open…", self.open_dialog, QKeySequence.StandardKey.Open)
         m.addSeparator()
-        self.a_save = self._act(m, "&Save", self.save, QKeySequence.StandardKey.Save)
-        self._act(m, "Save &As…", self.save_as, "Ctrl+Shift+S")
-        self._act(m, "&Export image…", self.export, "Ctrl+E")
+        self.a_save = self._act(m, "&Save Project", self.save, QKeySequence.StandardKey.Save)
+        self.a_save.setToolTip("Save the project (.otoe): the original picture and every step, so you can carry on later")
+        self._act(m, "Save Project &As…", self.save_as, "Ctrl+Shift+S")
+        self.a_export = self._act(m, "&Export Image…", self.export, "Ctrl+E")
+        self.a_export.setToolTip("Write the picture as an ordinary image file (PNG, JPEG…)")
+        self.a_export_again = self._act(m, "Export Again", self.export_again, "Ctrl+Alt+E")
+        self.a_export_again.setToolTip("Write the picture again next to the last export, as the next numbered file, with the same settings")
+        self.a_export_again.setEnabled(False)
+        self.recent_menu = m.addMenu("Open &Recent"); self.recent_menu.aboutToShow.connect(self._fill_recent)
         m.addSeparator()
         self.a_revert = self._act(m, "Re&vert to Original", self.revert)
         m.addSeparator()
@@ -544,7 +581,8 @@ class MainWindow(QMainWindow):
         self.a_copy = self._act(m, "&Copy", self.copy_image, QKeySequence.StandardKey.Copy)
         self._act(m, "Copy &Whole Image", lambda: self.copy_image(whole=True), "Ctrl+Shift+C")
         self._act(m, "Copy Edit &History as Text", self.copy_history_text)
-        self._act(m, "Paste Effect &Recipe", self.paste_recipe)
+        self.a_paste_recipe = self._act(m, "Paste Effect &Recipe", self.paste_recipe)
+        m.aboutToShow.connect(self._update_paste_recipe)
         m.addSeparator()
         self.a_free = self._act(m, "&Rectangle selection mode", lambda on: self.set_free_selection(on), checkable=True)
         self.a_free.setStatusTip("Drag rectangles on the image instead of runs of rows")
@@ -595,7 +633,7 @@ class MainWindow(QMainWindow):
             a.setStatusTip("How the picture's bytes are read as audio samples (like the encoding in Audacity's raw import)")
 
         tb = self.toolbar = self.addToolBar("Main"); tb.setMovable(False)
-        for act in (self.a_save, self.a_undo, self.a_redo):
+        for act in (self.a_save, self.a_export, self.a_undo, self.a_redo):
             tb.addAction(act)
         cmp_btn = QToolButton(); cmp_btn.setText("Compare")
         cmp_btn.setToolTip(tip("Compare", "Hold to see the original image. Let go to get your edit back.", hint="Or hold C (not while an effect window is open)"))
@@ -690,7 +728,9 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         menu.addAction("About this effect", lambda: InfoDialog(e.name, help_html(e), self).show())
         menu.addAction("Apply…", lambda: self.run_effect(e))
-        menu.addAction("Paste recipe", self.paste_recipe)
+        name = self._clipboard_recipe()
+        pa = menu.addAction(f"Paste recipe: {name}" if name else "Paste recipe (none on the clipboard)", self.paste_recipe)
+        pa.setEnabled(bool(name))
         menu.exec(self.tree.viewport().mapToGlobal(pos))
 
     def _filter_effects(self, text):
@@ -715,7 +755,7 @@ class MainWindow(QMainWindow):
         if pixels is None:
             self.a_undo.setEnabled(d.can_undo); self.a_redo.setEnabled(d.can_redo)
             self.a_revert.setEnabled(d.loaded)
-            self.a_save.setEnabled(d.loaded)
+            self.a_save.setEnabled(d.loaded); self.a_export.setEnabled(d.loaded)
             name = (d.path.name if d.path else d.source_name) or "untitled"
             self.setWindowTitle(f"{name}{'*' if d.dirty else ''} — Oto-e")
             self.info.setText(f"{d.size[0]}×{d.size[1]}  ·  {stream.size:,} samples  ·  {stream.size / SR:.2f} s @ {SR} Hz" if d.loaded else "")
@@ -887,6 +927,18 @@ class MainWindow(QMainWindow):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.run_effect(dlg.effect, initial=dlg.params)
 
+    def _clipboard_recipe(self) -> str | None:
+        """Name of the effect in the recipe on the clipboard, or None if there is no valid recipe."""
+        try:
+            return recipe.from_text(QApplication.clipboard().text())[0].name
+        except recipe.RecipeError:
+            return None
+
+    def _update_paste_recipe(self):
+        name = self._clipboard_recipe()
+        self.a_paste_recipe.setText(f"Paste Effect &Recipe: {name}" if name else "Paste Effect &Recipe")
+        self.a_paste_recipe.setEnabled(bool(name))
+
     def paste_recipe(self):
         """Open the effect dialog named by the recipe on the clipboard, with its settings filled in."""
         try:
@@ -904,11 +956,34 @@ class MainWindow(QMainWindow):
 
     # --------------------------------------------------------------- files
     def _confirm_discard(self) -> bool:
+        """Before anything that replaces the document: offer to save it first. True = go ahead."""
         if not self.doc.dirty:
             return True
-        r = QMessageBox.question(self, "Unsaved changes", "Discard unsaved changes?",
-                                 QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel)
-        return r == QMessageBox.StandardButton.Discard
+        B = QMessageBox.StandardButton
+        r = QMessageBox.question(self, "Unsaved changes", "Save your changes to the project first?", B.Save | B.Discard | B.Cancel, B.Save)
+        if r == B.Save:
+            return self._save_blocking()
+        if r == B.Discard:
+            self._clear_recovery()
+            return True
+        return False
+
+    def _save_blocking(self) -> bool:
+        """Save the project now and wait for it (used where the next step needs the file written: closing, opening another)."""
+        d = self.doc
+        p = str(d.path) if d.path else self._ask_project_path()
+        if not p:
+            return False
+        self._save_pool.waitForDone(); self.statusBar().clearMessage()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            project.save(d, p)
+        except Exception as e:  # noqa: BLE001
+            QApplication.restoreOverrideCursor(); QMessageBox.critical(self, "Can't save", str(e)); return False
+        QApplication.restoreOverrideCursor()
+        d.path = Path(p); d.dirty = False
+        self._after_project_saved(p)
+        return True
 
     def open_dialog(self):
         if not self._confirm_discard():
@@ -918,7 +993,7 @@ class MainWindow(QMainWindow):
         if p:
             self.open_path(p, confirmed=True)
 
-    def open_path(self, p, confirmed=False):
+    def open_path(self, p, confirmed=False, recovered=False):
         if self._saving or self._busy is not None or getattr(self, "_dlg", None):
             self.statusBar().showMessage("Finish or cancel what is open first", 4000); return
         if not confirmed and not self._confirm_discard():
@@ -931,6 +1006,10 @@ class MainWindow(QMainWindow):
             else:
                 self.doc.install_image(*result, Path(p).name)
             self.settings.setValue("lastdir", str(Path(p).parent))
+            if recovered:  # a recovered session is not a file of its own: it is unsaved work until you save it
+                self.doc.path = None; self.doc.dirty = True
+            else:
+                self._add_recent(p)
             self.sel = None
             if is_project:  # the project remembers how its bytes were being read
                 self.mode_cb.blockSignals(True); self.mode_cb.setCurrentIndex(self.doc.mode); self.mode_cb.blockSignals(False)
@@ -956,6 +1035,8 @@ class MainWindow(QMainWindow):
         """Encode a copy of the picture on a worker thread; the window stays free and the project untouched."""
         px, size = self.doc.pixels.copy(), self.doc.size
         self.statusBar().showMessage(f"Exporting {p}…")
+        self._last_export = (p, options)
+        self.a_export_again.setEnabled(True)
         self._run_job(lambda: write_image(px, size, p, options), lambda _: self.statusBar().showMessage(f"Exported {p}", 4000),
                       lambda msg: QMessageBox.critical(self, "Can't export", msg))
 
@@ -978,7 +1059,7 @@ class MainWindow(QMainWindow):
         if error is None:
             if d.original is snap.original:
                 d.original_png = snap.original_png
-            self.statusBar().showMessage(f"Saved {d.path}", 4000)
+            self._after_project_saved(str(d.path))
         else:
             d.path, d.dirty = prev_path, True
             QMessageBox.critical(self, "Can't save", error)
@@ -991,13 +1072,76 @@ class MainWindow(QMainWindow):
             return self.save_as()
         self._write_project(str(self.doc.path))
 
-    def save_as(self):
-        if not self.doc.loaded:
+    # ------------------------------------------------------------ recent files and crash recovery
+    RECENT_MAX = 10
+    AUTOSAVE_MS = 3 * 60 * 1000
+
+    def _recent(self) -> list[str]:
+        try:
+            return [p for p in json.loads(str(self.settings.value("recent", "[]"))) if isinstance(p, str)]
+        except ValueError:
+            return []
+
+    def _add_recent(self, p):
+        items = [p] + [q for q in self._recent() if q != p]
+        self.settings.setValue("recent", json.dumps(items[:self.RECENT_MAX]))
+
+    def _fill_recent(self):
+        self.recent_menu.clear()
+        items = [p for p in self._recent() if Path(p).exists()]
+        for p in items:
+            self.recent_menu.addAction(Path(p).name, lambda p=p: self.open_path(p)).setToolTip(p)
+        if not items:
+            self.recent_menu.addAction("(nothing yet)").setEnabled(False)
+
+    def _recovery_path(self) -> Path:
+        return Path(self.settings.fileName()).parent / "recovery.otoe"
+
+    def _clear_recovery(self):
+        try:
+            self._recovery_path().unlink()
+        except OSError:
+            pass
+
+    def _autosave(self):
+        """Every few minutes, while there are unsaved changes, write the session to a recovery file (never over your project)."""
+        d = self.doc
+        if not (d.loaded and d.dirty) or self._saving or self._busy is not None or self._autosaving:
             return
+        snap = project.snapshot(d); path = self._recovery_path(); self._autosaving = True
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        def done(_=None):
+            self._autosaving = False
+        self._run_job(lambda: project.write(snap, str(path)), done, done)
+
+    def offer_recovery(self):
+        """At start-up: if the last session ended with unsaved changes, offer to bring it back."""
+        path = self._recovery_path()
+        if not path.exists():
+            return
+        when = time.strftime("%H:%M on %d %b", time.localtime(path.stat().st_mtime))
+        B = QMessageBox.StandardButton
+        r = QMessageBox.question(self, "Restore your last session?", f"Oto-e closed with unsaved changes (last kept at {when}). Restore them?", B.Yes | B.No, B.Yes)
+        if r == B.Yes:
+            self.open_path(str(path), confirmed=True, recovered=True)
+        else:
+            self._clear_recovery()
+
+    def _ask_project_path(self) -> str | None:
         base = self.doc.path or Path(self.settings.value("lastdir", str(Path.home()))) / (Path(self.doc.source_name).stem + project.EXT)
         p, _ = QFileDialog.getSaveFileName(self, "Save project", str(base), f"Oto-e project (*{project.EXT})")
-        if p:
-            self._write_project(p if Path(p).suffix.lower() == project.EXT else p + project.EXT)
+        return (p if Path(p).suffix.lower() == project.EXT else p + project.EXT) if p else None
+
+    def save_as(self):
+        if self.doc.loaded and (p := self._ask_project_path()):
+            self._write_project(p)
+
+    def _after_project_saved(self, p):
+        self.settings.setValue("lastdir", str(Path(p).parent))
+        self._add_recent(p); self._clear_recovery()
+        self.statusBar().showMessage(f"Saved {p}", 4000)
+        self._refresh()
 
     def _export_options(self, path: str, ask: bool = True) -> dict | None:
         """The settings to write `path` with: last used for its format, asked for first if `ask`. None = cancelled."""
@@ -1021,6 +1165,17 @@ class MainWindow(QMainWindow):
         if self.doc.loaded and (p := self._ask_image_path("Export image")) and (opts := self._export_options(p)) is not None:
             self._write_image(p, opts)
 
+    def export_again(self):
+        """Export to the next free numbered name beside the last export (name.png, name_2.png, …), with the same settings."""
+        if not (self.doc.loaded and self._last_export):
+            return
+        last, opts = self._last_export
+        q = Path(last); stem = re.sub(r"_\d+$", "", q.stem)
+        n = 2
+        while (q.with_name(f"{stem}_{n}{q.suffix}")).exists():
+            n += 1
+        self._write_image(str(q.with_name(f"{stem}_{n}{q.suffix}")), opts)
+
     def revert(self):
         if self.doc.loaded:
             self.doc.revert(); self._refresh()
@@ -1031,6 +1186,7 @@ class MainWindow(QMainWindow):
             self._save_pool.waitForDone(); self._job_pool.waitForDone(); QApplication.restoreOverrideCursor()
             QApplication.processEvents()
         if self._confirm_discard():
+            self._clear_recovery()
             e.accept()
         else:
             e.ignore()
@@ -1452,4 +1608,6 @@ def main():
     except (TypeError, ValueError):
         pass
     w = MainWindow(); w.show()
+    if len(sys.argv) < 2:
+        QTimer.singleShot(0, w.offer_recovery)
     sys.exit(app.exec())

@@ -187,9 +187,11 @@ def controls_sections(c: Colors) -> list[Section]:
         Section("saving", "Saving and exporting", "<p>Save keeps your whole session in a <b>.otoe</b> project: the original picture and every step of the history, branches included. "
                                                "Export writes the picture itself as an ordinary image. Oto-e never overwrites your original image.</p>", [
             Section("save-cmds", "Save, Save As, Export", table([
-                (k("Save") + " (Ctrl+S)", "Saves the project (.otoe). The first time it asks where to put it; after that it writes to the same file."),
-                (k("Save As") + " (Ctrl+Shift+S)", "Always asks where to put the project. The new file becomes the one you are working on."),
+                (k("Save Project") + " (Ctrl+S)", "Saves the project (.otoe). The first time it asks where to put it; after that it writes to the same file."),
+                (k("Save Project As") + " (Ctrl+Shift+S)", "Always asks where to put the project. The new file becomes the one you are working on."),
                 (k("Export image") + " (Ctrl+E)", "Asks for an image file and its settings and writes the picture as it is now. Your project and its unsaved-changes mark are left alone. Handy for dumping variants."),
+                (k("Export Again") + " (Ctrl+Alt+E)", "Writes the picture once more beside your last export, as the next numbered file (name_2.png, name_3.png…), with the same settings. No dialog."),
+                (k("Open Recent") + " (File menu)", "Your last ten files."),
                 (k("Revert to Original") + " (File menu)", "Puts the original picture back as a new history step, so you can still jump back."),
             ], c, ("Command", "What it does"), ("30%", "70%"))),
             Section("save-formats", "File formats and their settings", table([
@@ -205,7 +207,8 @@ def controls_sections(c: Colors) -> list[Section]:
         ]),
         Section("keys", "Keyboard shortcuts", table([
             "File",
-            (k("Ctrl+O"), "Open"), (k("Ctrl+S"), "Save"), (k("Ctrl+Shift+S"), "Save As"), (k("Ctrl+E"), "Export image"), (k("Ctrl+Q"), "Quit"),
+            (k("Ctrl+O"), "Open"), (k("Ctrl+S"), "Save project"), (k("Ctrl+Shift+S"), "Save project as"), (k("Ctrl+E"), "Export image"),
+            (k("Ctrl+Alt+E"), "Export again (next numbered file, same settings)"), (k("Esc"), "Give up on a running effect or other long job"), (k("Ctrl+Q"), "Quit"),
             "Edit",
             (k("Ctrl+Z"), "Undo"), (k("Ctrl+Shift+Z"), "Redo"), (k("Ctrl+C"), "Copy selection as a picture"), (k("Ctrl+Shift+C"), "Copy the whole image as a picture"),
             (k("Ctrl+A"), "Select all"), (k("Ctrl+Shift+A"), "Select none"),
