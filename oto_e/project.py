@@ -32,7 +32,7 @@ class ProjectError(ValueError):
 def _png(px: np.ndarray, size) -> bytes:
     w, h = size
     buf = io.BytesIO()
-    Image.fromarray(px.reshape(h, w, 3), "RGB").save(buf, "PNG", compress_level=6)
+    Image.fromarray(px.reshape(h, w, 3), "RGB").save(buf, "PNG", compress_level=1)
     return buf.getvalue()
 
 
@@ -58,28 +58,52 @@ def _info_from_json(info: dict) -> dict:
     return info
 
 
-def save(doc: Document, path: str):
-    """Write `doc` to `path` (replaced only once the whole file is written)."""
-    nodes = sorted(doc.nodes.values(), key=lambda n: n.id)
-    manifest = {
-        "app": "oto-e", "v": VERSION, "size": list(doc.size), "source_name": doc.source_name, "mode": doc.mode, "fmt": doc.fmt,
-        "current": doc.node.id, "root": doc.root.id, "next_id": doc._next_id,
-        "nodes": [{"id": n.id, "parent": n.parent.id if n.parent else None, "info": n.info,
-                   "redo": n.redo_child.id if n.redo_child else None, "lo": n.step.lo if n.step else None} for n in nodes],
-    }
+class Snapshot:
+    """Everything a save writes, copied out of the live document so the (slow) writing can run on another thread
+    while the document carries on changing."""
+
+    def __init__(self, doc: Document):
+        nodes = sorted(doc.nodes.values(), key=lambda n: n.id)
+        manifest = {
+            "app": "oto-e", "v": VERSION, "size": list(doc.size), "source_name": doc.source_name, "mode": doc.mode, "fmt": doc.fmt,
+            "current": doc.node.id, "root": doc.root.id, "next_id": doc._next_id,
+            "nodes": [{"id": n.id, "parent": n.parent.id if n.parent else None, "info": n.info,
+                       "redo": n.redo_child.id if n.redo_child else None, "lo": n.step.lo if n.step else None} for n in nodes],
+        }
+        self.manifest = json.dumps(manifest, default=_jsonable, indent=1, ensure_ascii=False)
+        self.size = doc.size
+        self.original = doc.original  # never modified in place, so no copy is needed
+        self.original_png = doc.original_png  # already encoded by an earlier save, if any
+        self.live = doc.live.copy()
+        self.steps = {n.id: n.step.data.copy() for n in nodes if n.step}
+
+
+def snapshot(doc: Document) -> Snapshot:
+    return Snapshot(doc)
+
+
+def write(snap: Snapshot, path: str) -> bytes:
+    """Write `snap` to `path` (replaced only once the whole file is written). Returns the encoded original picture,
+    which the caller may keep on the document so the next save skips encoding it again."""
+    original_png = snap.original_png or _png(snap.original, snap.size)
     tmp = f"{path}.tmp"
     try:
-        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-            z.writestr("history.json", json.dumps(manifest, default=_jsonable, indent=1, ensure_ascii=False))
-            z.writestr("original.png", _png(doc.original, doc.size), zipfile.ZIP_STORED)
-            z.writestr("current.png", _png(doc.live, doc.size), zipfile.ZIP_STORED)
-            for n in nodes:
-                if n.step:
-                    z.writestr(f"steps/{n.id}.bin", n.step.data.tobytes())
+        # Light compression: the pictures are glitched noise that barely shrinks, and level 6 costs several times the time for a few percent.
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
+            z.writestr("history.json", snap.manifest)
+            z.writestr("original.png", original_png, zipfile.ZIP_STORED)
+            z.writestr("current.png", _png(snap.live, snap.size), zipfile.ZIP_STORED)
+            for nid, data in snap.steps.items():
+                z.writestr(f"steps/{nid}.bin", data.tobytes())
         os.replace(tmp, path)
     finally:
         if os.path.exists(tmp):
             os.remove(tmp)
+    return original_png
+
+
+def save(doc: Document, path: str):
+    doc.original_png = write(snapshot(doc), path)
 
 
 def load(doc: Document, path: str):
@@ -118,4 +142,5 @@ def load(doc: Document, path: str):
     doc.size, doc.original, doc.live = size, original, live
     doc.nodes, doc.root, doc.node, doc._next_id = nodes, root, cur, next_id
     doc.mode, doc.fmt, doc.source_name = mode, fmt, name
+    doc.original_png = None
     doc.path = Path(path); doc.dirty = False

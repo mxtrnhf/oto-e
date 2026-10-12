@@ -185,6 +185,7 @@ class Document:
     def __init__(self):
         self.live = np.zeros(0, np.uint8)  # the live image, flat RGB
         self.original = self.live
+        self.original_png: bytes | None = None  # the original encoded for a project file; kept so repeated saves skip the work
         self._reset_history()
         self.size = (0, 0)  # w, h
         self.path: Path | None = None  # the .otoe project Save writes to
@@ -216,7 +217,7 @@ class Document:
             im = im.convert("RGB")
             self.size = im.size
             px = np.asarray(im, dtype=np.uint8).reshape(-1).copy()
-        self.original = px.copy()
+        self.original = px.copy(); self.original_png = None
         self.live = px; self._reset_history()
         self.source_name = Path(path).name
         self.path = None  # first Save always asks, so the source is never overwritten by accident

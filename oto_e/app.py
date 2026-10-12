@@ -278,6 +278,25 @@ class EffectDialog(QDialog):
         self.preview_cb(self.values() if self.live.isChecked() else None)
 
 
+class _SaveSignals(QObject):
+    done = pyqtSignal(object, object)  # the snapshot that was written, and an error message (None on success)
+
+
+class _SaveTask(QRunnable):
+    """Writes a project file off the UI thread, from a snapshot taken on it."""
+
+    def __init__(self, snap, path, signals):
+        super().__init__()
+        self.snap, self.path, self.signals = snap, path, signals
+
+    def run(self):
+        try:
+            self.snap.original_png = project.write(self.snap, self.path)
+        except Exception as e:  # noqa: BLE001
+            self.signals.done.emit(self.snap, str(e)); return
+        self.signals.done.emit(self.snap, None)
+
+
 class _PreviewSignals(QObject):
     done = pyqtSignal(object, object)  # request key, resulting pixels (None if the effect failed)
 
@@ -312,6 +331,9 @@ class MainWindow(QMainWindow):
         self.resize(1440, 840)
         self.setAcceptDrops(True)
 
+        self._saving = None  # (previous path, previous dirty flag) while a project is being written
+        self._save_pool = QThreadPool(self); self._save_pool.setMaxThreadCount(1)
+        self._save_signals = _SaveSignals(); self._save_signals.done.connect(self._save_done)
         self._pv_pool = QThreadPool(self); self._pv_pool.setMaxThreadCount(1)  # one preview at a time
         self._pv_signals = _PreviewSignals(); self._pv_signals.done.connect(self._on_preview_done)
         self._pv_busy = False; self._pv_latest = None; self._pv_cache = None
@@ -824,6 +846,8 @@ class MainWindow(QMainWindow):
             self.open_path(p, confirmed=True)
 
     def open_path(self, p, confirmed=False):
+        if self._saving:
+            self.statusBar().showMessage("Wait for the save to finish first", 4000); return
         if not confirmed and not self._confirm_discard():
             return
         is_project = Path(p).suffix.lower() == project.EXT
@@ -856,13 +880,28 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Exported {p}", 4000)
 
     def _write_project(self, p):
-        try:
-            project.save(self.doc, p)
-        except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, "Can't save", str(e)); return
-        self.doc.path = Path(p); self.doc.dirty = False
+        """Snapshot the document now (fast) and write the file on a worker thread, so a big project never freezes the window."""
+        if self._saving:
+            self.statusBar().showMessage("Still saving…", 3000); return
+        d = self.doc
+        self._saving = (d.path, d.dirty)  # to put back if the write fails
+        snap = project.snapshot(d)
+        d.path = Path(p); d.dirty = False  # edits made while writing mark it dirty again
         self.settings.setValue("lastdir", str(Path(p).parent))
-        self.statusBar().showMessage(f"Saved {p}", 4000)
+        self.statusBar().showMessage(f"Saving {p}…")
+        self._refresh()
+        self._save_pool.start(_SaveTask(snap, p, self._save_signals))
+
+    def _save_done(self, snap, error):
+        d = self.doc
+        prev_path, prev_dirty = self._saving; self._saving = None
+        if error is None:
+            if d.original is snap.original:
+                d.original_png = snap.original_png
+            self.statusBar().showMessage(f"Saved {d.path}", 4000)
+        else:
+            d.path, d.dirty = prev_path, True
+            QMessageBox.critical(self, "Can't save", error)
         self._refresh()
 
     def save(self):
@@ -907,6 +946,10 @@ class MainWindow(QMainWindow):
             self.doc.revert(); self._refresh()
 
     def closeEvent(self, e):
+        if self._saving:  # let the write finish rather than leave a half-saved project
+            self.statusBar().showMessage("Finishing the save…"); QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            self._save_pool.waitForDone(); QApplication.restoreOverrideCursor()
+            QApplication.processEvents()
         if self._confirm_discard():
             e.accept()
         else:
