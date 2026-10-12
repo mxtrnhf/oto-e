@@ -10,11 +10,11 @@ from pathlib import Path
 from PyQt6.QtCore import QEvent, QLoggingCategory, QObject, QRunnable, QSettings, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QBrush, QImage, QKeySequence, QPalette, QShortcut
 from PyQt6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
-                             QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
+                             QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
                              QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter, QTextBrowser, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                              QWidget)
 
-from . import effects, exportopts, steptext, uiscale
+from . import effects, exportopts, recipe, steptext, uiscale
 from .helptext import help_html
 from .helpdoc import controls_sections, reference_sections
 from .helpview import HelpDialog
@@ -41,6 +41,52 @@ class InfoDialog(QDialog):
         view = QTextBrowser(); view.setOpenExternalLinks(True); view.setHtml(html)
         lay = QVBoxLayout(self); lay.addWidget(view)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close); bb.rejected.connect(self.close); lay.addWidget(bb)
+
+
+class RecipeDialog(QDialog):
+    """Paste a recipe or load one from a .json file; OK stays disabled until the text is a valid recipe."""
+
+    def __init__(self, start_dir: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Import recipe"); self.resize(uiscale.px(480), uiscale.px(300))
+        self.start_dir = start_dir
+        self.effect: Effect | None = None; self.params: dict = {}; self.notes: list[str] = []
+        self.text = QPlainTextEdit(); self.text.setPlaceholderText("Paste a recipe here")
+        self.text.textChanged.connect(self._check)
+        load = QPushButton("Load from file…"); load.clicked.connect(self._load)
+        self.status = QLabel(); self.status.setWordWrap(True)
+        self.bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.bb.button(QDialogButtonBox.StandardButton.Ok).setText("Open effect")
+        self.bb.accepted.connect(self.accept); self.bb.rejected.connect(self.reject)
+        lay = QVBoxLayout(self)
+        for w in (self.text, load, self.status, self.bb):
+            lay.addWidget(w)
+        clip = QApplication.clipboard().text()
+        try:
+            recipe.from_text(clip); self.text.setPlainText(clip)
+        except recipe.RecipeError:
+            pass
+        self._check()
+
+    def _load(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Open recipe", self.start_dir, "Recipe (*.json);;All files (*)")
+        if p:
+            try:
+                self.text.setPlainText(Path(p).read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError) as e:
+                self.status.setText(f"<span style='color:#c0392b'>Could not read the file: {e}</span>")
+
+    def _check(self):
+        ok = self.bb.button(QDialogButtonBox.StandardButton.Ok)
+        if not self.text.toPlainText().strip():
+            self.effect = None; ok.setEnabled(False); self.status.setText(""); return
+        try:
+            self.effect, self.params, self.notes = recipe.from_text(self.text.toPlainText())
+        except recipe.RecipeError as e:
+            self.effect = None; ok.setEnabled(False); self.status.setText(f"<span style='color:#c0392b'>{e}</span>"); return
+        ok.setEnabled(True)
+        n = len(self.effect.params)
+        self.status.setText(f"{self.effect.name}, {n} setting{'s' if n != 1 else ''}" + "".join(f"<br>Note: {x}" for x in self.notes))
 
 
 class ExportDialog(QDialog):
@@ -318,6 +364,9 @@ class MainWindow(QMainWindow):
         self.history.viewChanged.connect(lambda i: self.settings.setValue("history_view", i))
         self.history.jump.connect(self.goto_state)
         self.history.tweakRequested.connect(self.tweak_step)
+        self.history.recipeCopyRequested.connect(self.copy_recipe)
+        self.history.recipeSaveRequested.connect(self.save_recipe)
+        self.history.recipeImportRequested.connect(self.import_recipe)
         main.addWidget(self.history); main.addWidget(left); main.addWidget(right)
         main.setStretchFactor(1, 1); main.setSizes([230, 940, 270])
         self.setCentralWidget(main)
@@ -400,6 +449,7 @@ class MainWindow(QMainWindow):
         self.a_copy = self._act(m, "&Copy", self.copy_image, QKeySequence.StandardKey.Copy)
         self._act(m, "Copy &Whole Image", lambda: self.copy_image(whole=True), "Ctrl+Shift+C")
         self._act(m, "Copy Edit &History as Text", self.copy_history_text)
+        self._act(m, "Paste Effect &Recipe", self.paste_recipe)
         m.addSeparator()
         self.a_free = self._act(m, "&Rectangle selection mode", lambda on: self.set_free_selection(on), checkable=True)
         self.a_free.setStatusTip("Drag rectangles on the image instead of runs of rows")
@@ -545,6 +595,7 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         menu.addAction("About this effect", lambda: InfoDialog(e.name, help_html(e), self).show())
         menu.addAction("Apply…", lambda: self.run_effect(e))
+        menu.addAction("Paste recipe", self.paste_recipe)
         menu.exec(self.tree.viewport().mapToGlobal(pos))
 
     def _filter_effects(self, text):
@@ -719,6 +770,37 @@ class MainWindow(QMainWindow):
         text, n = result
         QApplication.clipboard().setText(text)
         self.statusBar().showMessage(f"Copied {n} step{'s' if n != 1 else ''} to the clipboard as text", 4000)
+
+    def _step_info(self, node_id: int) -> dict:
+        return self.doc.nodes[node_id].info
+
+    def copy_recipe(self, node_id: int):
+        info = self._step_info(node_id)
+        QApplication.clipboard().setText(recipe.to_text(info))
+        self.statusBar().showMessage(f"Copied the {info['name']} recipe to the clipboard", 4000)
+
+    def save_recipe(self, node_id: int):
+        info = self._step_info(node_id)
+        start = str(Path(self.settings.value("lastdir", str(Path.home()))) / f"{info['name']}.json")
+        p, _ = QFileDialog.getSaveFileName(self, "Save recipe", start, "Recipe (*.json)")
+        if p:
+            Path(p).write_text(recipe.to_text(info) + "\n", encoding="utf-8")
+            self.statusBar().showMessage(f"Saved the {info['name']} recipe", 4000)
+
+    def import_recipe(self):
+        dlg = RecipeDialog(self.settings.value("lastdir", str(Path.home())), self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.run_effect(dlg.effect, initial=dlg.params)
+
+    def paste_recipe(self):
+        """Open the effect dialog named by the recipe on the clipboard, with its settings filled in."""
+        try:
+            eff, params, notes = recipe.from_text(QApplication.clipboard().text())
+        except recipe.RecipeError as e:
+            self.statusBar().showMessage(f"Clipboard: {e}", 5000); return
+        self.run_effect(eff, initial=params)
+        if notes:
+            self.statusBar().showMessage(f"Recipe: {'; '.join(notes)}", 8000)
 
     def select_all(self):
         if self.doc.loaded:

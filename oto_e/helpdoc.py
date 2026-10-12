@@ -156,7 +156,10 @@ def controls_sections(c: Colors) -> list[Section]:
             Section("hist-share", "Sharing your steps",
                     "<p><b>Edit → Copy Edit History as Text</b> puts the steps behind the current picture on the clipboard as plain text, with every setting's "
                     "exact value, ready to paste into a chat, a caption or a bug report. It lists only the steps that lead to what you are looking at, "
-                    "not other branches. It is a description, not a file: Oto-e cannot read it back in.</p>"),
+                    "not other branches. It is a description, not a file: Oto-e cannot read it back in.</p>"
+                    "<p>To share one effect so the other person can use it, right-click its step and choose <b>Copy as recipe</b> (or <b>Save recipe…</b>). "
+                    "A recipe is one line of text holding the effect and its settings, with no selection. Import it with <b>Import recipe…</b> (right-click in the history panel; you can paste the text or load a .json file), or paste straight from the clipboard with <b>Edit → Paste Effect Recipe</b> "
+                    "or from the right-click menu of the effect list: the effect's dialog opens with those settings, applied to whatever you have selected.</p>"),
             Section("hist-tweak", "Tweaking a step", two([
                 (k("Right-click") + " a step, then <i>Tweak settings…</i>", "Reopens that effect with its old settings, starting from the picture as it was before that step. "
                                                                        "Applying creates a new branch next to the original step"),

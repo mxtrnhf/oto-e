@@ -38,6 +38,9 @@ def describe_place(info: dict) -> str:
 class HistoryPanel(QWidget):
     jump = pyqtSignal(int)  # id of the history state the user clicked
     viewChanged = pyqtSignal(int)  # 0 = compact, 1 = full
+    recipeCopyRequested = pyqtSignal(int)  # id of the step whose effect and settings go to the clipboard
+    recipeSaveRequested = pyqtSignal(int)  # same, to a file
+    recipeImportRequested = pyqtSignal()  # open the import-recipe dialog
     tweakRequested = pyqtSignal(int)  # id of the step whose settings should be adjusted
 
     def __init__(self):
@@ -62,7 +65,9 @@ class HistoryPanel(QWidget):
     def _context_menu(self, pos):
         it = self.list.itemAt(pos)
         if it is None:
-            return
+            menu = QMenu(self)
+            menu.addAction("Import recipe…", self.recipeImportRequested.emit)
+            menu.exec(self.list.viewport().mapToGlobal(pos)); return
         nid = it.data(Qt.ItemDataRole.UserRole)
         info = next(e["info"] for e in self.entries if e["id"] == nid)
         menu = QMenu(self)
@@ -72,6 +77,10 @@ class HistoryPanel(QWidget):
         tweak.setEnabled(tweakable)
         if not tweakable:
             tweak.setToolTip("This step has no adjustable settings")
+        for text, sig in (("Copy as recipe", self.recipeCopyRequested), ("Save recipe…", self.recipeSaveRequested)):
+            a = menu.addAction(text, lambda s=sig: s.emit(nid)); a.setEnabled(tweakable)
+        menu.addSeparator()
+        menu.addAction("Import recipe…", self.recipeImportRequested.emit)
         menu.exec(self.list.viewport().mapToGlobal(pos))
 
     def set_history(self, entries: list[dict]):
