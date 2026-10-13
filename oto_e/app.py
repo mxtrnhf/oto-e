@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, Q
                              QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter, QTextBrowser, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                              QWidget)
 
-from . import effects, exportopts, project, recipe, steptext, uiscale
+from . import effects, exportopts, project, recipe, steptext, theme, uiscale
 from .helptext import help_html
 from .helpdoc import controls_sections, reference_sections
 from .helpview import HelpDialog
@@ -1612,6 +1612,7 @@ def main():
     QLoggingCategory.setFilterRules("kf.kio.widgets.kdirmodel.warning=false")
     app = QApplication(sys.argv)
     app.setApplicationName("Oto-e")
+    theme.apply(app)
     _install_excepthook()
     try:  # the text size chosen last time (View > Text size)
         uiscale.apply(int(QSettings("oto-e", "oto-e").value("font_scale", 100)))
