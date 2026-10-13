@@ -8,16 +8,19 @@ just because nobody formatted it, and tooltips added later look right without an
 from __future__ import annotations
 
 import html
+import re
 
 from PyQt6.QtCore import QEvent, QObject, QRect, Qt
 from PyQt6.QtGui import QFontMetrics
 from PyQt6.QtWidgets import QAbstractItemView, QToolTip, QWidget
 
-from . import uiscale
+from . import theme, uiscale
 from .helptext import _fmt_range
 
+TITLE_SIZE = "110%"
 TEXT_WIDTH = 340  # px a tooltip's text may take before it wraps
-GREY = "color:#808080"  # readable on both light and dark tooltip backgrounds
+GREY = f"color:{theme.TEXT_DIM}"
+KEYCAP = f"background-color:{theme.BG3}; color:{theme.TEXT}"  # a shortcut's keys, drawn like keys
 
 
 def _box(inner: str, measure: str) -> str:
@@ -29,17 +32,27 @@ def _box(inner: str, measure: str) -> str:
     return f'<table cellspacing="0" cellpadding="9"{width}><tr><td>{inner}</td></tr></table>'
 
 
+def _hint_html(hint: str) -> str:
+    """'Shortcut: Ctrl+R' shows its keys as key caps; any other hint is just quiet text."""
+    label, sep, keys = hint.partition(": ")
+    if sep and label == "Shortcut":
+        caps = " ".join(f'<span style="{KEYCAP}">&nbsp;{html.escape(k)}&nbsp;</span>' for k in re.findall(r"[^+]+|\+(?=$)", keys))
+        return f"{label} &nbsp;{caps}"
+    return html.escape(hint)
+
+
 def tip(title: str | None, body: str = "", hint: str | None = None, detail: str | None = None) -> str:
     """A structured tooltip. `title` is bold, `body` is the explanation (a blank line starts a new paragraph),
     `detail` is a quiet line such as a value range, and `hint` is a quiet last line such as a shortcut."""
     parts = []
     if title:
-        parts.append(f'<p style="margin:0 0 5px 0"><b>{html.escape(title)}</b></p>')
+        parts.append(f'<p style="margin:0 0 6px 0; font-size:{TITLE_SIZE}"><b>{html.escape(title)}</b></p>')
     for para in (p for p in body.split("\n\n") if p.strip()):
         parts.append(f'<p style="margin:0 0 6px 0">{html.escape(para.strip()).replace(chr(10), "<br>")}</p>')
-    for extra in (detail, hint):
-        if extra:
-            parts.append(f'<p style="margin:0 0 2px 0;{GREY}">{html.escape(extra)}</p>')
+    if detail:
+        parts.append(f'<p style="margin:0 0 2px 0;{GREY}">{html.escape(detail)}</p>')
+    if hint:
+        parts.append(f'<p style="margin:4px 0 2px 0;{GREY}">{_hint_html(hint)}</p>')
     return _box("".join(parts), "\n".join(x for x in (title, body, detail, hint) if x))
 
 

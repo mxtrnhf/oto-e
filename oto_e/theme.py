@@ -40,7 +40,7 @@ QMenu::item:disabled {{ color: #5c6068; }}
 QMenu::separator {{ height: 1px; background: {BORDER}; margin: 0.3em 0.5em; }}
 QStatusBar {{ background: {BG0}; color: {TEXT_DIM}; }}
 QStatusBar::item {{ border: 0; }}
-QToolTip {{ background: {BG3}; color: {TEXT}; border: 1px solid {BORDER}; padding: 0.4em; }}
+QToolTip {{ background: {BG2}; color: {TEXT}; border: 1px solid {BORDER}; border-left: 3px solid {ACCENT}; padding: 0; }}
 
 QPushButton, QToolButton {{ background: {BG3}; border: 1px solid {BORDER}; border-radius: 0; padding: 0.3em 0.4em; }}
 QPushButton:hover, QToolButton:hover {{ background: #393c42; border-color: #4a4e55; }}
