@@ -739,8 +739,9 @@ class MainWindow(QMainWindow):
         menu.addAction("About this effect", lambda: InfoDialog(e.name, help_html(e), self).show())
         menu.addAction("Apply…", lambda: self.run_effect(e))
         name = self._clipboard_recipe()
-        pa = menu.addAction(f"Paste recipe: {name}" if name else "Paste recipe (none on the clipboard)", self.paste_recipe)
-        pa.setEnabled(bool(name))
+        if name:  # not about the clicked effect (a recipe names its own), so only offered when there is one to paste
+            menu.addSeparator()
+            menu.addAction(f"Paste recipe: {name}", self.paste_recipe)
         menu.exec(self.tree.viewport().mapToGlobal(pos))
 
     def _filter_effects(self, text):
